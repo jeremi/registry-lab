@@ -90,6 +90,7 @@ auth:
   mode: oidc
   oidc:
     issuer: ${OIDC_ISSUER}
+    allow_dev_insecure_fetch_urls: true
     audience:
 ${audience_block}
     discovery_url: ${OIDC_ISSUER%/}/.well-known/openid-configuration
@@ -233,7 +234,11 @@ write_config "${token}"
 rm -rf "${output_dir}/oidc-relay-cache"
 (
   cd "${relay_dir}"
-  cargo run -- --config "${config_path}"
+  cargo build --bin registry-relay
+)
+(
+  cd "${relay_dir}"
+  cargo run --bin registry-relay -- --config "${config_path}"
 ) >"${log_path}" 2>&1 &
 relay_pid="$!"
 trap 'kill "${relay_pid}" >/dev/null 2>&1 || true' EXIT
