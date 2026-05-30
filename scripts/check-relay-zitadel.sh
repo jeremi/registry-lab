@@ -37,7 +37,7 @@ wait_zitadel_init() {
 cd "${demo_dir}"
 docker compose -f "${compose_file}" up -d zitadel-init
 wait_zitadel_init
-mkdir -p "${output_dir}"
+mkdir -p "$(dirname "${env_file}")"
 docker compose -f "${compose_file}" cp zitadel-init:/seed/zitadel.env "${env_file}" >/dev/null 2>&1
 
 set -a
