@@ -16,9 +16,11 @@ require_repo() {
   fi
 }
 
-run() {
-  echo "==> commons-check: $*"
-  "$@"
+run_in_dir() {
+  local dir="$1"
+  shift
+  echo "==> commons-check: (cd ${dir} && $*)"
+  (cd "${dir}" && "$@")
 }
 
 require_repo "registry-platform" "${platform_dir}"
@@ -26,10 +28,10 @@ require_repo "registry-manifest" "${manifest_dir}"
 require_repo "registry-relay" "${relay_dir}"
 require_repo "registry-notary" "${notary_dir}"
 
-run bash -lc "cd '${platform_dir}' && cargo test --workspace --all-features"
-run bash -lc "cd '${manifest_dir}' && scripts/check-contract-kernel.sh '${lab_root}/config/static-metadata/metadata.yaml' '${lab_root}'/config/relay/*.metadata.yaml"
-run bash -lc "cd '${relay_dir}' && REGISTRY_PLATFORM_SOURCE_DIR='${platform_dir}' scripts/check-platform-compat.sh"
-run bash -lc "cd '${notary_dir}' && REGISTRY_PLATFORM_SOURCE_DIR='${platform_dir}' scripts/check-platform-compat.sh"
+run_in_dir "${platform_dir}" cargo test --workspace --all-features
+run_in_dir "${manifest_dir}" scripts/check-contract-kernel.sh "${lab_root}/config/static-metadata/metadata.yaml" "${lab_root}"/config/relay/*.metadata.yaml
+run_in_dir "${relay_dir}" env REGISTRY_PLATFORM_SOURCE_DIR="${platform_dir}" scripts/check-platform-compat.sh
+run_in_dir "${notary_dir}" env REGISTRY_PLATFORM_SOURCE_DIR="${platform_dir}" scripts/check-platform-compat.sh
 
 tmp_dir="$(mktemp -d)"
 created_env_file=0
@@ -57,5 +59,5 @@ if [[ ! -e "${lab_root}/.env" ]]; then
   } >"${lab_root}/.env"
 fi
 
-run bash -lc "cd '${lab_root}' && REGISTRY_RELAY_SOURCE_DIR='${relay_dir}' REGISTRY_PLATFORM_SOURCE_DIR='${platform_dir}' REGISTRY_LAB_ZITADEL_ENV_FILE='${tmp_dir}/zitadel.env' scripts/check-relay-zitadel.sh"
-run bash -lc "cd '${lab_root}' && REGISTRY_NOTARY_SOURCE_DIR='${notary_dir}' REGISTRY_PLATFORM_SOURCE_DIR='${platform_dir}' scripts/check-notary-redis.sh"
+run_in_dir "${lab_root}" env REGISTRY_RELAY_SOURCE_DIR="${relay_dir}" REGISTRY_PLATFORM_SOURCE_DIR="${platform_dir}" REGISTRY_LAB_ZITADEL_ENV_FILE="${tmp_dir}/zitadel.env" scripts/check-relay-zitadel.sh
+run_in_dir "${lab_root}" env REGISTRY_NOTARY_SOURCE_DIR="${notary_dir}" REGISTRY_PLATFORM_SOURCE_DIR="${platform_dir}" scripts/check-notary-redis.sh
