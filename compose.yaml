@@ -8,7 +8,7 @@ x-relay-common: &relay-common
     additional_contexts:
       registry_relay_src: ${REGISTRY_RELAY_SOURCE_DIR:-./vendor/registry-relay}
       registry_platform_src: ${REGISTRY_RELAY_PLATFORM_SOURCE_DIR:-${REGISTRY_PLATFORM_SOURCE_DIR:-./vendor/registry-platform}}
-      registry_manifest_src: ${REGISTRY_MANIFEST_REPO:-../registry-manifest}
+      registry_manifest_src: ${REGISTRY_MANIFEST_REPO:-./vendor/registry-manifest}
       cel_mapping_src: ${CEL_MAPPING_SOURCE_DIR:-./vendor/cel-mapping}
     args:
       REGISTRY_RELAY_FEATURES: ${REGISTRY_RELAY_FEATURES:-spdci-api-standards,standards-cel-mapping}
@@ -43,14 +43,18 @@ x-notary-common: &notary-common
 services:
   postgres:
     image: postgres:16-alpine
+    entrypoint: ["sh", "-c"]
     command:
-      - postgres
-      - -c
-      - ssl=on
-      - -c
-      - ssl_cert_file=/run/postgres-ssl/server.crt
-      - -c
-      - ssl_key_file=/run/postgres-ssl/server.key
+      - |
+        mkdir -p /tmp/postgres-ssl
+        cp /run/postgres-ssl/server.crt /tmp/postgres-ssl/server.crt
+        cp /run/postgres-ssl/server.key /tmp/postgres-ssl/server.key
+        chmod 600 /tmp/postgres-ssl/server.key
+        chown postgres:postgres /tmp/postgres-ssl/server.crt /tmp/postgres-ssl/server.key
+        exec docker-entrypoint.sh postgres \
+          -c ssl=on \
+          -c ssl_cert_file=/tmp/postgres-ssl/server.crt \
+          -c ssl_key_file=/tmp/postgres-ssl/server.key
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres

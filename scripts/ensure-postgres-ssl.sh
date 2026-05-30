@@ -10,7 +10,7 @@ cert_path="${ssl_dir}/server.crt"
 mkdir -p "${ssl_dir}"
 
 if [[ -s "${key_path}" && -s "${cert_path}" ]]; then
-  chmod 600 "${key_path}"
+  chmod 644 "${key_path}"
   chmod 644 "${cert_path}"
   exit 0
 fi
@@ -31,5 +31,5 @@ openssl req \
   -out "${cert_path}" \
   >/dev/null 2>&1
 
-chmod 600 "${key_path}"
+chmod 644 "${key_path}"
 chmod 644 "${cert_path}"
