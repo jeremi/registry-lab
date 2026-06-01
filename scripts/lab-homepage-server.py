@@ -1,0 +1,691 @@
+#!/usr/bin/env python3
+"""Serve the public Registry Lab homepage."""
+
+from __future__ import annotations
+
+import argparse
+import html
+import json
+import os
+import shlex
+import time
+import urllib.error
+import urllib.request
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.parse import urljoin
+
+
+DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / "config/lab-homepage/public-demo-credentials.json"
+DEFAULT_ENV_FILE = Path(__file__).resolve().parents[1] / "config/lab-homepage/public-demo-credentials.env"
+TOKEN_SUFFIXES = ("_RAW", "_TOKEN", "_BEARER")
+
+
+def parse_env_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        try:
+            values[key] = shlex.split(value, comments=False, posix=True)[0]
+        except (IndexError, ValueError):
+            values[key] = value.strip("'\"")
+    return values
+
+
+def load_config(path: Path) -> dict[str, Any]:
+    with path.open(encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def public_env(config: dict[str, Any]) -> dict[str, str]:
+    names = {credential["env"] for credential in config.get("credentials", []) if credential.get("env")}
+    env_values = dict(os.environ)
+    return {name: env_values.get(name, "") for name in sorted(names)}
+
+
+def apply_env_file(values: dict[str, str]) -> None:
+    for key, value in values.items():
+        os.environ.setdefault(key, value)
+
+
+def credential_lookup(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        credential["id"]: credential
+        for credential in config.get("credentials", [])
+        if credential.get("id")
+    }
+
+
+def enrich_config(config: dict[str, Any]) -> dict[str, Any]:
+    env_values = public_env(config)
+    credentials = []
+    for credential in config.get("credentials", []):
+        item = dict(credential)
+        token = env_values.get(item.get("env", ""), "")
+        item["token"] = token
+        item["configured"] = bool(token)
+        item["auth_header"] = f"Authorization: Bearer {token}" if token else ""
+        item["curl"] = curl_example(item, token)
+        credentials.append(item)
+
+    enriched = dict(config)
+    enriched["credentials"] = credentials
+    enriched["generated_at_unix_ms"] = int(time.time() * 1000)
+    return enriched
+
+
+def curl_example(credential: dict[str, Any], token: str) -> str:
+    example = credential.get("example") or {}
+    method = example.get("method", "GET")
+    base_url = credential.get("service_url", "").rstrip("/")
+    path = example.get("path", "/")
+    url = f"{base_url}{path}"
+    pieces = ["curl", "-fsS", "-X", method, shlex.quote(url)]
+    if token:
+        pieces.extend(["-H", shlex.quote(f"Authorization: Bearer {token}")])
+    for header, value in (credential.get("required_headers") or {}).items():
+        pieces.extend(["-H", shlex.quote(f"{header}: {value}")])
+    return " ".join(pieces)
+
+
+def status_checks(config: dict[str, Any], timeout: float) -> dict[str, Any]:
+    credentials = credential_lookup(enrich_config(config))
+    checks = []
+    for service in config.get("services", []):
+        start = time.monotonic()
+        url = urljoin(service["url"].rstrip("/") + "/", service.get("status_path", "/").lstrip("/"))
+        headers = {"User-Agent": "registry-lab-homepage/1.0"}
+        credential_id = service.get("status_credential_id")
+        token = ""
+        if credential_id and credential_id in credentials:
+            token = credentials[credential_id].get("token", "")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        request = urllib.request.Request(url, headers=headers, method="GET")
+        result: dict[str, Any] = {
+            "id": service.get("id"),
+            "label": service.get("label"),
+            "url": service.get("url"),
+            "status_url": url,
+        }
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                result["status_code"] = response.status
+                result["ok"] = 200 <= response.status < 400
+        except urllib.error.HTTPError as error:
+            result["status_code"] = error.code
+            result["ok"] = False
+            result["error"] = HTTPStatus(error.code).phrase if error.code in HTTPStatus._value2member_map_ else "HTTP error"
+        except Exception as error:  # noqa: BLE001
+            result["status_code"] = None
+            result["ok"] = False
+            result["error"] = error.__class__.__name__
+        result["latency_ms"] = int((time.monotonic() - start) * 1000)
+        checks.append(result)
+    return {"generated_at_unix_ms": int(time.time() * 1000), "checks": checks}
+
+
+def homepage_html(title: str) -> bytes:
+    safe_title = html.escape(title)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{safe_title}</title>
+  <style>
+    :root {{
+      color-scheme: light;
+      --registry-blue: #173b7a;
+      --registry-blue-dark: #102a56;
+      --registry-teal: #0f766e;
+      --registry-amber: #855b00;
+      --registry-ink: #161616;
+      --registry-body: #3a3a3a;
+      --registry-muted: #6a6a6a;
+      --registry-rule: #e5e5e5;
+      --registry-sidebar: #fafafa;
+      --registry-active: #eef3ff;
+      --registry-code-bg: #f3f4f6;
+      --registry-ok-bg: #edf7f2;
+      --registry-bad-bg: #fff1f1;
+      --registry-max: 1120px;
+      --registry-font: "Public Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --registry-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }}
+    * {{ box-sizing: border-box; letter-spacing: 0; }}
+    html {{ background: #ffffff; color: var(--registry-body); font-family: var(--registry-font); scroll-behavior: smooth; }}
+    body {{
+      margin: 0;
+      background: #ffffff;
+      color: var(--registry-body);
+      font: 14px/1.5 var(--registry-font);
+    }}
+    body, button, input, textarea {{ font: inherit; }}
+    a {{ color: var(--registry-blue); text-decoration: none; }}
+    a:hover {{ text-decoration: underline; }}
+    :focus-visible {{ outline: 2px solid var(--registry-blue); outline-offset: 3px; }}
+    .site-header {{
+      align-items: center;
+      background: rgba(255, 255, 255, 0.98);
+      border-bottom: 1px solid var(--registry-rule);
+      display: flex;
+      gap: 24px;
+      justify-content: space-between;
+      padding: 14px clamp(16px, 4vw, 42px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }}
+    .brand {{
+      align-items: center;
+      color: var(--registry-ink);
+      display: inline-flex;
+      font-size: 17px;
+      font-weight: 700;
+      gap: 12px;
+      white-space: nowrap;
+    }}
+    .brand:hover {{ text-decoration: none; }}
+    .brand-mark {{
+      align-items: center;
+      background: var(--registry-blue);
+      color: #ffffff;
+      display: inline-flex;
+      font-family: var(--registry-mono);
+      font-size: 13px;
+      height: 34px;
+      justify-content: center;
+      width: 34px;
+    }}
+    .top-nav {{
+      align-items: center;
+      display: flex;
+      flex-wrap: wrap;
+      gap: clamp(12px, 2vw, 24px);
+      justify-content: flex-end;
+    }}
+    .top-nav a {{
+      align-items: center;
+      color: var(--registry-muted);
+      display: inline-flex;
+      font-size: 14px;
+      font-weight: 600;
+      min-height: 36px;
+    }}
+    .top-nav .nav-emphasis {{ color: var(--registry-blue); }}
+    .hero {{
+      background: #ffffff;
+      border-bottom: 1px solid var(--registry-rule);
+    }}
+    .hero-inner {{
+      display: grid;
+      gap: clamp(24px, 4vw, 44px);
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+      margin: 0 auto;
+      max-width: var(--registry-max);
+      padding: clamp(48px, 7vw, 86px) clamp(16px, 4vw, 42px) clamp(34px, 5vw, 58px);
+    }}
+    .eyebrow {{
+      color: var(--registry-teal);
+      font-family: var(--registry-mono);
+      font-size: 12px;
+      margin: 0 0 14px;
+      text-transform: uppercase;
+    }}
+    h1, h2, h3, p {{ margin-top: 0; }}
+    h1 {{
+      color: var(--registry-ink);
+      font-size: clamp(40px, 6vw, 70px);
+      line-height: 1.02;
+      margin: 0 0 22px;
+      max-width: 820px;
+    }}
+    h2 {{
+      color: var(--registry-ink);
+      font-size: clamp(24px, 3vw, 36px);
+      line-height: 1.05;
+      margin: 0 0 18px;
+    }}
+    h3 {{
+      color: var(--registry-ink);
+      font-size: 18px;
+      line-height: 1.2;
+      margin: 0 0 10px;
+    }}
+    p {{ line-height: 1.58; margin: 0; }}
+    .subtitle {{
+      color: var(--registry-body);
+      font-size: clamp(17px, 2vw, 22px);
+      line-height: 1.42;
+      max-width: 760px;
+    }}
+    .badge-row {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }}
+    .badge {{
+      border: 1px solid var(--registry-rule);
+      color: var(--registry-ink);
+      display: inline-flex;
+      align-items: center;
+      font-size: 14px;
+      font-weight: 700;
+      min-height: 38px;
+      padding: 8px 10px;
+      white-space: nowrap;
+    }}
+    .hero-note {{ color: var(--registry-body); font-size: 15px; margin-top: 18px; max-width: 620px; }}
+    .hero-links {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }}
+    .status-summary {{
+      background: var(--registry-sidebar);
+      border: 1px solid var(--registry-rule);
+      min-width: 0;
+      padding: 20px;
+    }}
+    .status-summary h2 {{ font-size: 22px; margin-bottom: 8px; }}
+    .status-counts {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-top: 18px; border: 1px solid var(--registry-rule); }}
+    .count {{ background: #ffffff; border-left: 1px solid var(--registry-rule); padding: 12px 8px; text-align: center; }}
+    .count:first-child {{ border-left: 0; }}
+    .count strong {{ color: var(--registry-ink); display: block; font-size: 24px; line-height: 1; }}
+    main {{ display: block; }}
+    .band {{
+      background: #ffffff;
+      border-bottom: 1px solid var(--registry-rule);
+    }}
+    .band-muted {{ background: var(--registry-sidebar); }}
+    .band-inner {{
+      margin: 0 auto;
+      max-width: var(--registry-max);
+      padding: clamp(42px, 6vw, 70px) clamp(16px, 4vw, 42px);
+    }}
+    .section-heading {{
+      margin-bottom: 28px;
+      max-width: 800px;
+    }}
+    .section-heading p:not(.eyebrow) {{ color: var(--registry-body); font-size: 17px; max-width: 760px; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }}
+    .pill {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 88px;
+      min-height: 32px;
+      padding: 6px 9px;
+      border: 1px solid var(--registry-rule);
+      color: var(--registry-muted);
+      background: #ffffff;
+      font-family: var(--registry-mono);
+      font-size: 12px;
+    }}
+    .pill.ok {{ color: var(--registry-teal); border-color: var(--registry-teal); background: var(--registry-ok-bg); }}
+    .pill.bad {{ color: #a22d2d; border-color: #d9a1a1; background: var(--registry-bad-bg); }}
+    .credential {{
+      display: grid;
+      gap: 14px;
+      padding: 20px;
+      border: 1px solid var(--registry-rule);
+      background: #fff;
+      min-width: 0;
+    }}
+    .credential h3::before {{
+      background: var(--registry-blue);
+      content: "";
+      display: block;
+      height: 3px;
+      margin-bottom: 16px;
+      width: 28px;
+    }}
+    .meta {{ color: var(--registry-muted); font-size: 13px; }}
+    .token-box {{
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+      min-width: 0;
+    }}
+    code, pre {{
+      font-family: var(--registry-mono);
+      font-size: 12px;
+      letter-spacing: 0;
+    }}
+    code.token {{
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      border: 1px solid var(--registry-rule);
+      color: var(--registry-ink);
+      padding: 10px;
+      background: var(--registry-code-bg);
+    }}
+    pre {{
+      overflow: auto;
+      margin: 0;
+      border: 1px solid var(--registry-rule);
+      color: var(--registry-ink);
+      padding: 12px;
+      background: var(--registry-code-bg);
+      max-height: 140px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }}
+    button, .button {{
+      align-items: center;
+      border: 1px solid var(--registry-blue);
+      display: inline-flex;
+      font-weight: 700;
+      justify-content: center;
+      min-height: 36px;
+      padding: 7px 12px;
+      background: #fff;
+      color: var(--registry-blue);
+      cursor: pointer;
+      font: inherit;
+      white-space: nowrap;
+    }}
+    button:hover, .button:hover {{ background: var(--registry-active); text-decoration: none; }}
+    .primary {{ background: var(--registry-blue); border-color: var(--registry-blue); color: #fff; }}
+    .primary:hover {{ background: var(--registry-blue-dark); }}
+    .wallet-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }}
+    .kv {{ display: grid; gap: 6px; padding: 18px; border: 1px solid var(--registry-rule); background: #ffffff; }}
+    .kv span {{ color: var(--registry-teal); font-family: var(--registry-mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0; }}
+    .kv strong {{ color: var(--registry-ink); overflow-wrap: anywhere; }}
+    .actions {{ display: flex; gap: 10px; flex-wrap: wrap; }}
+    .hidden {{ display: none; }}
+    .site-footer {{
+      align-items: start;
+      display: flex;
+      gap: 24px;
+      justify-content: space-between;
+      margin: 0 auto;
+      max-width: var(--registry-max);
+      padding: 32px clamp(16px, 4vw, 42px);
+    }}
+    @media (max-width: 760px) {{
+      .site-header {{ align-items: flex-start; flex-direction: column; }}
+      .top-nav {{ justify-content: flex-start; }}
+      .hero-inner {{ grid-template-columns: 1fr; }}
+      .token-box {{ grid-template-columns: 1fr; }}
+    }}
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="Registry Lab home">
+      <span class="brand-mark" aria-hidden="true">RS</span>
+      <span>Registry Lab</span>
+    </a>
+    <nav class="top-nav" aria-label="Lab navigation">
+      <a href="#wallet">Wallet test</a>
+      <a href="#credentials">Demo credentials</a>
+      <a class="nav-emphasis" href="https://registrystack.org/">Registry Stack</a>
+    </nav>
+  </header>
+  <main>
+    <section class="hero" aria-labelledby="title">
+      <div class="hero-inner">
+        <div>
+          <p class="eyebrow">Public demo lab</p>
+          <h1 id="title">Registry Lab</h1>
+          <p class="subtitle" id="subtitle"></p>
+          <p class="hero-note">Everything here runs on synthetic demo data. The credentials below are public on purpose, and none of them reach a real or production system. Poke around freely.</p>
+          <div class="hero-links">
+            <a class="button primary" href="#wallet">Try the wallet test</a>
+            <a class="button" href="#services">See what is running</a>
+            <a class="button" href="#credentials">Developer credentials</a>
+          </div>
+          <div class="badge-row">
+            <span class="badge" id="domain"></span>
+            <span class="badge" id="notice"></span>
+          </div>
+        </div>
+        <aside class="status-summary">
+          <h2>Status</h2>
+          <p class="meta" id="status-time">Checking services</p>
+          <div class="status-counts">
+            <div class="count"><strong id="ok-count">0</strong><span class="meta">up</span></div>
+            <div class="count"><strong id="bad-count">0</strong><span class="meta">down</span></div>
+            <div class="count"><strong id="missing-count">0</strong><span class="meta">missing token</span></div>
+          </div>
+        </aside>
+      </div>
+    </section>
+    <section class="band" id="services">
+      <div class="band-inner">
+        <div class="section-heading">
+          <p class="eyebrow">What is running</p>
+          <h2>The services in this lab.</h2>
+          <p>Each one is a live Registry Stack service working on seeded demo data. The pill shows whether it is responding right now.</p>
+        </div>
+        <div class="grid" id="services-grid"></div>
+      </div>
+    </section>
+    <section class="band band-muted" id="wallet">
+      <div class="band-inner">
+        <div class="section-heading">
+          <p class="eyebrow">Wallet test</p>
+          <h2>Try a citizen wallet proof.</h2>
+          <p>Open the offer, sign in as the demo citizen, and the wallet should receive a signed proof that the person is alive. This demonstrates a public service getting the answer it needs without seeing the whole civil registry record. You will need a compatible digital wallet to open the offer.</p>
+        </div>
+        <div class="wallet-grid" id="wallet-grid"></div>
+      </div>
+    </section>
+    <section class="band" id="credentials">
+      <div class="band-inner">
+        <div class="section-heading">
+          <p class="eyebrow">Demo credentials</p>
+          <h2>Developer credentials for the demo APIs.</h2>
+          <p>These bearer tokens are public on purpose. They only reach seeded demo data, never a real or production system. Copy a token, or the ready-made curl command, to call a service yourself.</p>
+        </div>
+        <div class="grid" id="credentials-grid"></div>
+      </div>
+    </section>
+  </main>
+  <footer class="site-footer">
+    <div>
+      <a class="brand" href="https://registrystack.org/">
+        <span class="brand-mark" aria-hidden="true">RS</span>
+        <span>Registry Stack</span>
+      </a>
+      <p class="meta">Public demo environment for governed registry services.</p>
+    </div>
+  </footer>
+  <script>
+    const text = (value) => value == null ? "" : String(value);
+    const byId = (id) => document.getElementById(id);
+
+    function escapeHtml(value) {{
+      return text(value).replace(/[&<>"']/g, (char) => ({{
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "\\"": "&quot;", "'": "&#39;"
+      }}[char]));
+    }}
+
+    async function copyValue(value, button) {{
+      await navigator.clipboard.writeText(value);
+      const previous = button.textContent;
+      button.textContent = "Copied";
+      setTimeout(() => button.textContent = previous, 1200);
+    }}
+
+    function renderWallet(wallet) {{
+      const offer = wallet.offer_url || "";
+      const identity = wallet.demo_identity || {{}};
+      const negative = wallet.negative_control || {{}};
+      byId("wallet-grid").innerHTML = `
+        <div class="kv"><span>Start here</span><strong>Open the credential offer</strong><div class="meta">Your wallet should ask you to sign in, then request the proof.</div><div class="actions"><a class="button primary" href="${{escapeHtml(offer)}}" target="_blank" rel="noreferrer">Open offer</a><button type="button" data-copy="${{escapeHtml(offer)}}">Copy URL</button></div></div>
+        <div class="kv"><span>Sign in as</span><strong>${{escapeHtml(identity.name)}}</strong><div class="meta">Use ID ${{escapeHtml(identity.identifier)}}, code ${{escapeHtml(identity.generated_code)}}, and PIN ${{escapeHtml(identity.pin)}} if asked.</div></div>
+        <div class="kv"><span>Your wallet should receive</span><strong>${{escapeHtml(wallet.credential_name || wallet.credential_configuration_id)}}</strong><div class="meta">${{escapeHtml(identity.expected_result || wallet.user_story || "")}}</div></div>
+        <div class="kv"><span>Why this matters</span><strong>A service gets a yes/no proof, not the full civil record.</strong><div class="meta">${{escapeHtml(wallet.user_story || "")}}</div></div>
+        <div class="kv"><span>Test a rejected case</span><strong>${{escapeHtml(negative.identifier)}}</strong><div class="meta">${{escapeHtml(negative.expected_result)}}</div></div>
+        <div class="kv"><span>For developers</span><strong>Issuer and credential type</strong><div class="meta">${{escapeHtml(wallet.issuer)}} &middot; ${{escapeHtml(wallet.credential_configuration_id)}}</div></div>
+      `;
+    }}
+
+    function renderServices(services) {{
+      byId("services-grid").innerHTML = services.map((service) => `
+        <article class="credential">
+          <div>
+            <h3>${{escapeHtml(service.label)}}</h3>
+            <div class="meta">${{escapeHtml(service.purpose || "")}}</div>
+          </div>
+          <div><span class="pill" data-status-for="${{escapeHtml(service.id)}}">checking</span></div>
+          <div class="actions">
+            <a class="button" href="${{escapeHtml(service.url)}}" target="_blank" rel="noreferrer">Open</a>
+          </div>
+        </article>
+      `).join("");
+    }}
+
+    function renderCredentials(credentials) {{
+      byId("credentials-grid").innerHTML = credentials.map((credential) => {{
+        const scopes = (credential.scopes || []).join(", ");
+        const token = credential.token || "";
+        const curl = credential.curl || "";
+        const headerRows = Object.entries(credential.required_headers || {{}})
+          .map(([key, value]) => `<div class="meta">${{escapeHtml(key)}}: ${{escapeHtml(value)}}</div>`)
+          .join("");
+        return `
+          <article class="credential">
+            <div>
+              <h3>${{escapeHtml(credential.label)}}</h3>
+              <div class="meta">${{escapeHtml(scopes)}}</div>
+              ${{headerRows}}
+            </div>
+            <div class="token-box">
+              <code class="token" title="${{escapeHtml(token)}}">${{escapeHtml(token || "Missing env value")}}</code>
+              <button type="button" data-copy="${{escapeHtml(token)}}" ${{token ? "" : "disabled"}}>Copy token</button>
+            </div>
+            <pre>${{escapeHtml(curl)}}</pre>
+            <div class="actions">
+              <a class="button" href="${{escapeHtml(credential.service_url)}}" target="_blank" rel="noreferrer">Open service</a>
+              <button type="button" data-copy="${{escapeHtml(curl)}}">Copy curl</button>
+            </div>
+          </article>
+        `;
+      }}).join("");
+    }}
+
+    function wireCopyButtons() {{
+      document.querySelectorAll("[data-copy]").forEach((button) => {{
+        button.addEventListener("click", () => copyValue(button.getAttribute("data-copy") || "", button));
+      }});
+    }}
+
+    async function loadStatus() {{
+      try {{
+        const response = await fetch("/api/status.json", {{cache: "no-store"}});
+        const status = await response.json();
+        let ok = 0;
+        let bad = 0;
+        for (const check of status.checks || []) {{
+          const node = document.querySelector(`[data-status-for="${{CSS.escape(check.id)}}"]`);
+          if (check.ok) {{
+            ok += 1;
+            if (node) {{
+              node.textContent = `up - ${{check.status_code}}`;
+              node.className = "pill ok";
+            }}
+          }} else {{
+            bad += 1;
+            if (node) {{
+              node.textContent = check.status_code ? `down - ${{check.status_code}}` : `down`;
+              node.className = "pill bad";
+            }}
+          }}
+        }}
+        byId("ok-count").textContent = ok;
+        byId("bad-count").textContent = bad;
+        byId("status-time").textContent = "Checked just now";
+      }} catch (error) {{
+        byId("status-time").textContent = "Status unavailable";
+      }}
+    }}
+
+    async function start() {{
+      const response = await fetch("/api/lab.json", {{cache: "no-store"}});
+      const data = await response.json();
+      byId("title").textContent = data.title || "Registry Lab";
+      byId("subtitle").textContent = data.subtitle || "";
+      byId("domain").textContent = data.environment?.domain || "";
+      byId("notice").textContent = data.environment?.notice || "";
+      byId("missing-count").textContent = (data.credentials || []).filter((credential) => !credential.configured).length;
+      renderServices(data.services || []);
+      renderWallet(data.wallet || {{}});
+      renderCredentials(data.credentials || []);
+      wireCopyButtons();
+      loadStatus();
+    }}
+    start();
+  </script>
+</body>
+</html>
+""".encode("utf-8")
+
+
+class LabHomepageHandler(BaseHTTPRequestHandler):
+    config: dict[str, Any] = {}
+    status_timeout: float = 2.0
+
+    def do_GET(self) -> None:
+        path = self.path.split("?", 1)[0]
+        if path == "/":
+            self.send_bytes(homepage_html(self.config.get("title", "Registry Lab")), "text/html; charset=utf-8")
+            return
+        if path == "/healthz":
+            self.send_json({"ok": True})
+            return
+        if path == "/api/lab.json":
+            self.send_json(enrich_config(self.config))
+            return
+        if path == "/api/status.json":
+            self.send_json(status_checks(self.config, self.status_timeout))
+            return
+        self.send_error(HTTPStatus.NOT_FOUND)
+
+    def send_json(self, value: Any) -> None:
+        body = json.dumps(value, indent=2, sort_keys=True).encode("utf-8")
+        self.send_bytes(body, "application/json; charset=utf-8")
+
+    def send_bytes(self, body: bytes, content_type: str) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt: str, *args: object) -> None:
+        print(f"{self.address_string()} - {fmt % args}", flush=True)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--env-file", type=Path, default=None)
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--status-timeout", type=float, default=2.0)
+    args = parser.parse_args()
+
+    env_file = args.env_file
+    if env_file is not None:
+        apply_env_file(parse_env_file(env_file))
+
+    config = load_config(args.config)
+    LabHomepageHandler.config = config
+    LabHomepageHandler.status_timeout = args.status_timeout
+    server = ThreadingHTTPServer((args.host, args.port), LabHomepageHandler)
+    print(f"serving Registry Lab homepage on {args.host}:{args.port}", flush=True)
+    server.serve_forever()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

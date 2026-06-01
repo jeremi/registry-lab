@@ -1,6 +1,7 @@
 name: registry-lab
 
 x-hosted-domains:
+  lab-homepage: lab.registrystack.org
   citizen-civil-notary: citizen-notary.lab.registrystack.org
   civil-registry-relay: civil-relay.lab.registrystack.org
   social-protection-registry-relay: social-relay.lab.registrystack.org
@@ -79,7 +80,7 @@ services:
         apk add --no-cache git >/dev/null
         rm -rf /tmp/repo
         git clone --depth 1 --branch "$$CONFIG_REPO_REF" "$$CONFIG_REPO_URL" /tmp/repo
-        for d in relay notary data pginit openfn-tmpl openfn-jobs static-scripts; do
+        for d in relay notary data pginit openfn-tmpl openfn-jobs static-scripts lab-homepage; do
           mkdir -p "/out/$$d"
           find "/out/$$d" -mindepth 1 -delete 2>/dev/null || true
         done
@@ -92,6 +93,8 @@ services:
         cp -a /tmp/repo/config/coolify/openfn/. /out/openfn-tmpl/
         cp -a /tmp/repo/config/openfn/jobs/. /out/openfn-jobs/
         cp -a /tmp/repo/scripts/static-metadata-server.py /out/static-scripts/
+        cp -a /tmp/repo/scripts/lab-homepage-server.py /out/static-scripts/
+        cp -a /tmp/repo/config/lab-homepage/. /out/lab-homepage/
         echo "config-loader: populated config volumes from $$CONFIG_REPO_REF"
     volumes:
       - cfg-relay:/out/relay
@@ -101,6 +104,7 @@ services:
       - cfg-openfn-tmpl:/out/openfn-tmpl
       - cfg-openfn-jobs:/out/openfn-jobs
       - cfg-static-scripts:/out/static-scripts
+      - cfg-lab-homepage:/out/lab-homepage
 
   postgres:
     image: ${REGISTRY_LAB_POSTGRES_IMAGE:-postgres:16-alpine}
@@ -240,6 +244,49 @@ services:
       retries: 3
       start_period: 10s
 
+  lab-homepage:
+    image: ${REGISTRY_LAB_HOMEPAGE_IMAGE:-python:3.12.3-slim-bookworm}
+    command:
+      - python
+      - /opt/lab-scripts/lab-homepage-server.py
+      - --port
+      - "8080"
+      - --host
+      - 0.0.0.0
+      - --config
+      - /etc/registry-lab-homepage/public-demo-credentials.json
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      CIVIL_METADATA_CLIENT_RAW: ${CIVIL_METADATA_CLIENT_RAW:-}
+      CIVIL_EVIDENCE_ONLY_RAW: ${CIVIL_EVIDENCE_ONLY_RAW:-}
+      CIVIL_ROW_READER_RAW: ${CIVIL_ROW_READER_RAW:-}
+      SOCIAL_METADATA_CLIENT_RAW: ${SOCIAL_METADATA_CLIENT_RAW:-}
+      SOCIAL_EVIDENCE_ONLY_RAW: ${SOCIAL_EVIDENCE_ONLY_RAW:-}
+      SOCIAL_ROW_READER_RAW: ${SOCIAL_ROW_READER_RAW:-}
+      SOCIAL_AGGREGATE_READER_RAW: ${SOCIAL_AGGREGATE_READER_RAW:-}
+      HEALTH_METADATA_CLIENT_RAW: ${HEALTH_METADATA_CLIENT_RAW:-}
+      HEALTH_EVIDENCE_ONLY_RAW: ${HEALTH_EVIDENCE_ONLY_RAW:-}
+      HEALTH_ROW_READER_RAW: ${HEALTH_ROW_READER_RAW:-}
+      DHIS2_EVIDENCE_CLIENT_TOKEN: ${DHIS2_EVIDENCE_CLIENT_TOKEN:-}
+      DHIS2_EVIDENCE_CLIENT_BEARER: ${DHIS2_EVIDENCE_CLIENT_BEARER:-}
+      OPENCRVS_EVIDENCE_CLIENT_TOKEN: ${OPENCRVS_EVIDENCE_CLIENT_TOKEN:-}
+    depends_on:
+      config-loader:
+        condition: service_completed_successfully
+    volumes:
+      - cfg-static-scripts:/opt/lab-scripts:ro
+      - cfg-lab-homepage:/etc/registry-lab-homepage:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8080/healthz\", timeout=2).read()'"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   citizen-civil-notary:
     <<: *notary-common
     command: ["--config", "/etc/registry-notary/citizen-civil-notary.yaml"]
@@ -346,4 +393,5 @@ volumes:
   cfg-openfn-tmpl:
   cfg-openfn-jobs:
   cfg-static-scripts:
+  cfg-lab-homepage:
   static-content:
