@@ -5,14 +5,45 @@ x-hosted-domains:
   esignet-ui: esignet-ui.lab.registrystack.org
 
 services:
+  # Coolify does not seed compose bind mounts from the git repo. This one-shot
+  # init clones the public repo and populates named config volumes that the
+  # database, esignet-ui, and seed services mount at their expected paths.
+  config-loader:
+    image: ${CONFIG_LOADER_IMAGE:-alpine:3.20}
+    restart: "no"
+    environment:
+      CONFIG_REPO_URL: ${CONFIG_REPO_URL:-https://github.com/jeremi/registry-lab}
+      CONFIG_REPO_REF: ${CONFIG_REPO_REF:-coolify-deploy}
+    entrypoint: ["/bin/sh", "-euc"]
+    command:
+      - |
+        apk add --no-cache git >/dev/null
+        rm -rf /tmp/repo
+        git clone --depth 1 --branch "$$CONFIG_REPO_REF" "$$CONFIG_REPO_URL" /tmp/repo
+        for d in pginit uiconf seed; do
+          mkdir -p "/out/$$d"
+          find "/out/$$d" -mindepth 1 -delete 2>/dev/null || true
+        done
+        cp -a /tmp/repo/config/esignet/init.sql /out/pginit/
+        cp -a /tmp/repo/config/esignet/nginx-hosted.conf /out/uiconf/
+        cp -a /tmp/repo/scripts/seed-esignet-live.py /out/seed/
+        echo "config-loader: populated esignet config volumes from $$CONFIG_REPO_REF"
+    volumes:
+      - es-pginit:/out/pginit
+      - es-uiconf:/out/uiconf
+      - es-seed:/out/seed
+
   database:
-    image: postgres:bookworm
+    image: ${REGISTRY_LAB_ESIGNET_POSTGRES_IMAGE:-postgres:16}
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${REGISTRY_LAB_ESIGNET_POSTGRES_PASSWORD:-replace-in-coolify}
+    depends_on:
+      config-loader:
+        condition: service_completed_successfully
     volumes:
-      - esignet-postgres-data:/var/lib/postgresql/data
-      - ./config/esignet/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - esignet-pgdata:/var/lib/postgresql/data
+      - es-pginit:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
       interval: 5s
@@ -112,6 +143,8 @@ services:
     depends_on:
       esignet:
         condition: service_healthy
+      config-loader:
+        condition: service_completed_successfully
     environment:
       container_user: mosip
       DEFAULT_WELLKNOWN: "%5B%7B%22name%22%3A%22OpenID%20Configuration%22%2C%22value%22%3A%22%2F.well-known%2Fopenid-configuration%22%7D%2C%7B%22name%22%3A%22Jwks%20Json%22%2C%22value%22%3A%22%2F.well-known%2Fjwks.json%22%7D%2C%7B%22name%22%3A%22Authorization%20Server%22%2C%22value%22%3A%22%2F.well-known%2Foauth-authorization-server%22%7D%5D"
@@ -121,8 +154,13 @@ services:
       images_url_env: ""
     expose:
       - "3000"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cp /lab-uiconf/nginx-hosted.conf /etc/nginx/nginx.conf
+        exec sh configure_start.sh /bin/sh -c 'echo "starting nginx" ; nginx ; sleep infinity'
     volumes:
-      - ./config/esignet/nginx-hosted.conf:/etc/nginx/nginx.conf:ro
+      - es-uiconf:/lab-uiconf:ro
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://esignet-ui:3000/.well-known/openid-configuration"]
       interval: 10s
@@ -139,6 +177,8 @@ services:
         condition: service_healthy
       mock-identity-system:
         condition: service_healthy
+      config-loader:
+        condition: service_completed_successfully
     environment:
       PGHOST: database
       PGPORT: "5432"
@@ -147,7 +187,7 @@ services:
       ESIGNET_CLIENT_PRIVATE_KEY_FILE: /var/lib/esignet-seed/client-private.pem
       REGISTRY_LAB_ESIGNET_CLIENT_REDIRECT_URIS_JSON: '${REGISTRY_LAB_ESIGNET_CLIENT_REDIRECT_URIS_JSON:-["https://esignet-ui.lab.registrystack.org/callback"]}'
     volumes:
-      - ./scripts/seed-esignet-live.py:/seed/seed-esignet-live.py:ro
+      - es-seed:/seed:ro
       - esignet-seed-data:/var/lib/esignet-seed
     entrypoint: ["/bin/sh", "-euc"]
     command:
@@ -184,6 +224,9 @@ services:
     restart: "no"
 
 volumes:
-  esignet-postgres-data:
+  esignet-pgdata:
   esignet-redis-data:
   esignet-seed-data:
+  es-pginit:
+  es-uiconf:
+  es-seed:
