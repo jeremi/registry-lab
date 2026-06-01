@@ -26,7 +26,7 @@ dhis2_child_program_sd_jwt
 Run from the Registry Lab directory:
 
 ```bash
-cd /Users/jeremi/Projects/204-programs-delivery-commons/apps/registry-lab
+cd /path/to/registry-lab
 ```
 
 You need:
