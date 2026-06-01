@@ -42,12 +42,13 @@ services:
       config-loader:
         condition: service_completed_successfully
     volumes:
-      # Postgres holds the MOSIP keymanager key *aliases*, but the HSM keystore
-      # that backs them lives on ephemeral container disk (no volume on esignet /
-      # mock-identity-system). A container recreate wipes the keystore, so the DB
-      # must be reset alongside it or startup fails with "No such alias". This
-      # volume is versioned; bump the suffix to force a clean reset.
-      - esignet-pgdata-v2:/var/lib/postgresql/data
+      # Postgres holds the MOSIP keymanager key *aliases*; the matching key
+      # material (the master key) persists in the mock-keystore / esignet-keystore
+      # volumes. These three form a consistent set: a keystore without its DB
+      # aliases (or vice versa) fails startup with "No such alias". To force a
+      # clean reset, bump this suffix AND recreate the two keystore volumes
+      # together so all three are reinitialized as a set.
+      - esignet-pgdata-v3:/var/lib/postgresql/data
       - es-pginit:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
@@ -88,6 +89,15 @@ services:
       MOSIP_ESIGNET_HOST: esignet.lab.registrystack.org
       MOSIP_MOCK_IDA_KYC_TRANSACTION_TIMEOUT_SECS: "900"
       MOSIP_MOCK_IDA_IDENTITY_OPENID_CLAIMS_MAPPING: '{"individualId":"individual_id","fullName":"name","givenName":"given_name","familyName":"family_name","email":"email","phone":"phone_number","gender":"gender","dateOfBirth":"birthdate","encodedPhoto":"picture","preferredUsername":"preferred_username","middleName":"middle_name","nickName":"nickname","streetAddress":"address.street_address","locality":"address.locality","region":"address.region","country":"address.country","postalCode":"address.postal_code","preferredLang":"locale","zoneInfo":"address.zoneinfo"}'
+      # Relocate the PKCS12 keymanager keystore (the master key) onto a named
+      # volume so it survives container recreates and stays consistent with the
+      # key aliases persisted in postgres. Default is /home/mosip/mock_local.p12
+      # on the ephemeral container layer, which a recreate wipes -> "No such
+      # alias" crash. Spring relaxed binding maps this env to
+      # mosip.kernel.keymanager.hsm.config-path (no -D override in the launcher).
+      MOSIP_KERNEL_KEYMANAGER_HSM_CONFIG_PATH: /home/mosip/keystore/mock_local.p12
+    volumes:
+      - mock-keystore:/home/mosip/keystore
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://mock-identity-system:8082/v1/mock-identity-system/actuator/health"]
       interval: 10s
@@ -133,8 +143,13 @@ services:
       MOSIP_ESIGNET_INTEGRATION_KEY_BINDER: MockKeyBindingWrapperService
       MOSIP_ESIGNET_MOCK_DOMAIN_URL: http://mock-identity-system:8082
       MOSIP_ESIGNET_OPENID_SCOPE_CLAIMS: "{'profile' : {'name','address','gender','birthdate','picture','email','phone_number','phone_number_verified','registration_type','updated_at','individual_id'},'email' : {'email'}, 'phone' : {'phone_number','phone_number_verified'}, 'address': {'address'}}"
+      # Persist the PKCS12 keymanager keystore on a named volume; see the same
+      # setting on mock-identity-system for the rationale.
+      MOSIP_KERNEL_KEYMANAGER_HSM_CONFIG_PATH: /home/mosip/keystore/esignet_local.p12
     expose:
       - "8088"
+    volumes:
+      - esignet-keystore:/home/mosip/keystore
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://esignet:8088/v1/esignet/oidc/.well-known/openid-configuration"]
       interval: 10s
@@ -229,7 +244,9 @@ services:
     restart: "no"
 
 volumes:
-  esignet-pgdata-v2:
+  esignet-pgdata-v3:
+  mock-keystore:
+  esignet-keystore:
   esignet-redis-data:
   esignet-seed-data:
   es-pginit:
