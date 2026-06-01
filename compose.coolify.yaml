@@ -53,7 +53,10 @@ x-notary-common: &notary-common
   expose:
     - "8080"
   healthcheck:
-    test: ["CMD", "registry-notary", "healthcheck"]
+    # The notary image ships only the binary + sh (no curl/wget for an HTTP
+    # /healthz probe), and this build has no `healthcheck` subcommand, so use
+    # `--version` as a process-liveness check.
+    test: ["CMD", "registry-notary", "--version"]
     interval: 30s
     timeout: 10s
     retries: 3
@@ -140,7 +143,7 @@ services:
 
   zitadel:
     image: ${REGISTRY_LAB_ZITADEL_IMAGE:-ghcr.io/zitadel/zitadel:v2.66.4}
-    command: start-from-init --tlsMode disabled
+    command: start-from-init --masterkeyFromEnv --tlsMode disabled
     environment:
       ZITADEL_MASTERKEY: ${ZITADEL_MASTERKEY:-}
       ZITADEL_DATABASE_POSTGRES_HOST: postgres
