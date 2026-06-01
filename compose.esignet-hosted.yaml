@@ -42,7 +42,12 @@ services:
       config-loader:
         condition: service_completed_successfully
     volumes:
-      - esignet-pgdata:/var/lib/postgresql/data
+      # Postgres holds the MOSIP keymanager key *aliases*, but the HSM keystore
+      # that backs them lives on ephemeral container disk (no volume on esignet /
+      # mock-identity-system). A container recreate wipes the keystore, so the DB
+      # must be reset alongside it or startup fails with "No such alias". This
+      # volume is versioned; bump the suffix to force a clean reset.
+      - esignet-pgdata-v2:/var/lib/postgresql/data
       - es-pginit:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
@@ -224,7 +229,7 @@ services:
     restart: "no"
 
 volumes:
-  esignet-pgdata:
+  esignet-pgdata-v2:
   esignet-redis-data:
   esignet-seed-data:
   es-pginit:
