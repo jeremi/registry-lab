@@ -246,6 +246,34 @@ class HostedDeployValidationTest(unittest.TestCase):
         issues = self._validate(compose, self._valid_esignet())
         self.assertIssue(issues, "missing-openfn-job-mount")
 
+    def test_valid_walt_artifact_passes(self) -> None:
+        issues = self._validate_walt(self._valid_walt())
+        self.assertEqual(issues, [], [str(issue) for issue in issues])
+
+    def test_rejects_missing_walt_service(self) -> None:
+        walt = self._valid_walt()
+        del walt["services"]["wallet-api"]
+        issues = self._validate_walt(walt)
+        self.assertIssue(issues, "missing-service")
+
+    def test_rejects_missing_walt_domain(self) -> None:
+        walt = self._valid_walt()
+        walt["x-hosted-domains"] = {}
+        issues = self._validate_walt(walt)
+        self.assertIssue(issues, "missing-domain")
+
+    def test_rejects_missing_walt_auth_secret_reference(self) -> None:
+        walt = self._valid_walt()
+        del walt["services"]["wallet-api"]["environment"]["WALT_AUTH_SIGN_KEY"]
+        issues = self._validate_walt(walt)
+        self.assertIssue(issues, "missing-required-variable")
+
+    def test_rejects_walt_host_ports(self) -> None:
+        walt = self._valid_walt()
+        walt["services"]["caddy"]["ports"] = ["7101:7101"]
+        issues = self._validate_walt(walt)
+        self.assertIssue(issues, "host-ports")
+
     def assertIssue(self, issues, code: str) -> None:
         codes = [issue.code for issue in issues]
         self.assertIn(code, codes, [str(issue) for issue in issues])
@@ -257,6 +285,9 @@ class HostedDeployValidationTest(unittest.TestCase):
                 "esignet": copy.deepcopy(esignet),
             }
         )
+
+    def _validate_walt(self, walt: dict):
+        return self.validator.validate_artifacts({"walt": copy.deepcopy(walt)})
 
     @staticmethod
     def _valid_registry_lab() -> dict:
@@ -447,6 +478,45 @@ class HostedDeployValidationTest(unittest.TestCase):
             "x-hosted-domains": {
                 "esignet": f"esignet.{lab}",
                 "esignet-ui": f"esignet-ui.{lab}",
+            },
+        }
+
+    @staticmethod
+    def _valid_walt() -> dict:
+        lab = "lab.registrystack.org"
+        return {
+            "services": {
+                "walt-postgres": {
+                    "image": "postgres:16-alpine",
+                    "environment": {
+                        "POSTGRES_PASSWORD": "${WALT_DB_PASSWORD:-replace-in-coolify}",
+                    },
+                },
+                "wallet-api": {
+                    "image": "docker.io/waltid/wallet-api:0.20.2",
+                    "expose": ["7001"],
+                    "environment": {
+                        "SERVICE_HOST": f"wallet.{lab}",
+                        "DB_PASSWORD": "${WALT_DB_PASSWORD:-replace-in-coolify}",
+                        "WALT_AUTH_ENCRYPTION_KEY": "${WALT_AUTH_ENCRYPTION_KEY:?set it}",
+                        "WALT_AUTH_SIGN_KEY": "${WALT_AUTH_SIGN_KEY:?set it}",
+                        "WALT_AUTH_TOKEN_KEY": "${WALT_AUTH_TOKEN_KEY:?set it}",
+                    },
+                },
+                "waltid-demo-wallet": {
+                    "image": "docker.io/waltid/waltid-demo-wallet:0.20.2",
+                    "expose": ["7101"],
+                    "environment": {
+                        "NUXT_PUBLIC_ISSUER_CALLBACK_URL": f"https://wallet.{lab}",
+                    },
+                },
+                "caddy": {
+                    "image": "docker.io/caddy:2",
+                    "expose": ["7101"],
+                },
+            },
+            "x-hosted-domains": {
+                "caddy": f"wallet.{lab}",
             },
         }
 

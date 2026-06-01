@@ -129,12 +129,14 @@ citizen-self-attestation:
 hosted-validate:
     docker compose -f compose.coolify.yaml config >/dev/null
     REGISTRY_LAB_ESIGNET_POSTGRES_PASSWORD="${REGISTRY_LAB_ESIGNET_POSTGRES_PASSWORD:-hosted-validation-placeholder}" docker compose -f compose.esignet-hosted.yaml config >/dev/null
+    WALT_DB_PASSWORD="${WALT_DB_PASSWORD:-hosted-validation-placeholder}" WALT_AUTH_ENCRYPTION_KEY="${WALT_AUTH_ENCRYPTION_KEY:-hosted-validation-placeholder}" WALT_AUTH_SIGN_KEY="${WALT_AUTH_SIGN_KEY:-hosted-validation-placeholder}" WALT_AUTH_TOKEN_KEY="${WALT_AUTH_TOKEN_KEY:-hosted-validation-placeholder}" docker compose -f compose.walt-hosted.yaml config >/dev/null
     REGISTRY_LAB_ESIGNET_POSTGRES_PASSWORD="${REGISTRY_LAB_ESIGNET_POSTGRES_PASSWORD:-hosted-validation-placeholder}" uv run scripts/validate-hosted-deploy.py
 
 # Validate hosted artifacts and require real secret values in the current environment.
 hosted-validate-strict:
     docker compose -f compose.coolify.yaml config >/dev/null
     REGISTRY_LAB_ESIGNET_POSTGRES_PASSWORD="${REGISTRY_LAB_ESIGNET_POSTGRES_PASSWORD:-hosted-validation-placeholder}" docker compose -f compose.esignet-hosted.yaml config >/dev/null
+    WALT_DB_PASSWORD="${WALT_DB_PASSWORD:-hosted-validation-placeholder}" WALT_AUTH_ENCRYPTION_KEY="${WALT_AUTH_ENCRYPTION_KEY:-hosted-validation-placeholder}" WALT_AUTH_SIGN_KEY="${WALT_AUTH_SIGN_KEY:-hosted-validation-placeholder}" WALT_AUTH_TOKEN_KEY="${WALT_AUTH_TOKEN_KEY:-hosted-validation-placeholder}" docker compose -f compose.walt-hosted.yaml config >/dev/null
     uv run scripts/validate-hosted-deploy.py --require-secret-values
 
 # Run focused tests for hosted deployment validation.

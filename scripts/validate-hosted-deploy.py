@@ -39,6 +39,12 @@ REQUIRED_SERVICES = {
         "esignet",
         "esignet-ui",
     },
+    "walt": {
+        "walt-postgres",
+        "wallet-api",
+        "waltid-demo-wallet",
+        "caddy",
+    },
 }
 
 REQUIRED_DOMAINS = {
@@ -55,6 +61,9 @@ REQUIRED_DOMAINS = {
     "esignet": {
         "esignet": f"esignet.{LAB_DOMAIN}",
         "esignet-ui": f"esignet-ui.{LAB_DOMAIN}",
+    },
+    "walt": {
+        "caddy": f"wallet.{LAB_DOMAIN}",
     },
 }
 
@@ -98,6 +107,12 @@ REQUIRED_HOSTED_VARIABLES = {
     "esignet": {
         "REGISTRY_LAB_ESIGNET_POSTGRES_PASSWORD",
         "REGISTRY_LAB_ESIGNET_CLIENT_REDIRECT_URIS_JSON",
+    },
+    "walt": {
+        "WALT_DB_PASSWORD",
+        "WALT_AUTH_ENCRYPTION_KEY",
+        "WALT_AUTH_SIGN_KEY",
+        "WALT_AUTH_TOKEN_KEY",
     },
 }
 
@@ -978,6 +993,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="hosted eSignet compose file",
     )
     parser.add_argument(
+        "--walt-compose",
+        type=Path,
+        default=Path("compose.walt-hosted.yaml"),
+        help="hosted walt.id wallet compose file",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="print validation issues as JSON",
@@ -1000,6 +1021,7 @@ def main(argv: list[str]) -> int:
     for artifact, path in (
         ("registry-lab", args.registry_lab_compose),
         ("esignet", args.esignet_compose),
+        ("walt", args.walt_compose),
     ):
         if not path.exists():
             issues.append(
