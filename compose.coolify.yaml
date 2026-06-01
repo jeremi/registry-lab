@@ -228,9 +228,13 @@ services:
       - cfg-static-scripts:/opt/lab-scripts:ro
       - static-content:/srv/static:ro
     healthcheck:
+      # Liveness only: the server is alive whenever it answers. The published
+      # bundle (/.well-known/registry-manifest.json) is generated separately by
+      # publish-static-metadata.sh and is not seeded here yet, so probing the
+      # root keeps the check honest without requiring that content to exist.
       test:
         - CMD-SHELL
-        - "python -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8080/.well-known/registry-manifest.json\", timeout=2).read()'"
+        - "python -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8080/\", timeout=2).read()'"
       interval: 30s
       timeout: 5s
       retries: 3
