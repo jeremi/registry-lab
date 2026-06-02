@@ -80,6 +80,36 @@ def auth_header_pair(credential: dict[str, Any], token: str) -> tuple[str, str]:
     return "Authorization", f"Bearer {token}"
 
 
+def group_credentials_by_service(
+    services: list[dict[str, Any]], credentials: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Attach each credential to the service it calls, matched by URL.
+
+    Services keep their order and gain a `credentials` list (empty when none apply).
+    A credential whose service_url matches no service is surfaced under its own group
+    so it is never silently dropped from the page.
+    """
+    by_url: dict[str, list[dict[str, Any]]] = {}
+    for credential in credentials:
+        by_url.setdefault(credential.get("service_url", ""), []).append(credential)
+
+    grouped: list[dict[str, Any]] = []
+    matched_urls: set[str] = set()
+    for service in services:
+        item = dict(service)
+        url = item.get("url", "")
+        item["credentials"] = by_url.get(url, [])
+        matched_urls.add(url)
+        grouped.append(item)
+
+    for url, creds in by_url.items():
+        if url not in matched_urls:
+            grouped.append(
+                {"id": creds[0].get("id", url), "label": url, "url": url, "purpose": "", "credentials": creds}
+            )
+    return grouped
+
+
 def enrich_config(config: dict[str, Any]) -> dict[str, Any]:
     env_values = public_env(config)
     credentials = []
@@ -97,6 +127,7 @@ def enrich_config(config: dict[str, Any]) -> dict[str, Any]:
         credentials.append(item)
 
     enriched = dict(config)
+    enriched["services"] = group_credentials_by_service(config.get("services", []), credentials)
     enriched["credentials"] = credentials
     enriched["generated_at_unix_ms"] = int(time.time() * 1000)
     return enriched
@@ -117,8 +148,29 @@ def curl_example(credential: dict[str, Any], token: str) -> str:
     return " ".join(pieces)
 
 
+def base_url_browsable(url: str, timeout: float) -> bool:
+    """Whether an unauthenticated browser would see a real page at the service root.
+
+    The Open link points at this URL, so a 2xx/3xx (a page, or a redirect to one) means
+    there is something to see; a 401/403/404/5xx or a transport error means there is not.
+    """
+    request = urllib.request.Request(url, headers={"User-Agent": "registry-lab-homepage/1.0"}, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return 200 <= response.status < 400
+    except urllib.error.HTTPError as error:
+        return 200 <= error.code < 400
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def status_checks(config: dict[str, Any], timeout: float) -> dict[str, Any]:
     credentials = credential_lookup(enrich_config(config))
+    # Every credential in this lab is a token for a protected API, so a service that hands one
+    # out is never browsable unauthenticated: skip its base-URL probe and treat it as such.
+    credentialed_urls = {
+        credential.get("service_url", "") for credential in config.get("credentials", []) if credential.get("service_url")
+    }
     checks = []
     for service in config.get("services", []):
         start = time.monotonic()
@@ -132,12 +184,14 @@ def status_checks(config: dict[str, Any], timeout: float) -> dict[str, Any]:
             name, value = auth_header_pair(credentials[credential_id], token)
             headers[name] = value
         request = urllib.request.Request(url, headers=headers, method="GET")
+        base_url = service.get("url", "")
         result: dict[str, Any] = {
             "id": service.get("id"),
             "label": service.get("label"),
-            "url": service.get("url"),
+            "url": base_url,
             "status_url": url,
             "auth_gated": False,
+            "browsable": False if base_url in credentialed_urls else base_url_browsable(base_url, timeout),
         }
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -423,6 +477,19 @@ def homepage_html(title: str) -> bytes:
     .kv span {{ color: var(--registry-teal); font-family: var(--registry-mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0; }}
     .kv strong {{ color: var(--registry-ink); overflow-wrap: anywhere; }}
     .actions {{ display: flex; gap: 10px; flex-wrap: wrap; }}
+    /* One service per row; its credentials tile inside so wide services use the space. */
+    #services-grid {{ grid-template-columns: 1fr; }}
+    .status-row {{ display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }}
+    .cred-list {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 18px;
+      align-items: start;
+      border-top: 1px solid var(--registry-rule);
+      padding-top: 18px;
+    }}
+    .cred-block {{ display: grid; gap: 10px; min-width: 0; align-content: start; }}
+    .cred-name {{ color: var(--registry-ink); font-weight: 700; }}
     .hidden {{ display: none; }}
     .site-footer {{
       align-items: start;
@@ -448,8 +515,8 @@ def homepage_html(title: str) -> bytes:
       <span>Registry Lab</span>
     </a>
     <nav class="top-nav" aria-label="Lab navigation">
+      <a href="#services">Services &amp; credentials</a>
       <a href="#wallet">Wallet test</a>
-      <a href="#credentials">Demo credentials</a>
       <a class="nav-emphasis" href="https://registrystack.org/">Registry Stack</a>
     </nav>
   </header>
@@ -464,7 +531,6 @@ def homepage_html(title: str) -> bytes:
           <div class="hero-links">
             <a class="button primary" href="#wallet">Try the wallet test</a>
             <a class="button" href="#services">See what is running</a>
-            <a class="button" href="#credentials">Developer credentials</a>
           </div>
           <div class="badge-row">
             <span class="badge" id="domain"></span>
@@ -486,8 +552,8 @@ def homepage_html(title: str) -> bytes:
       <div class="band-inner">
         <div class="section-heading">
           <p class="eyebrow">What is running</p>
-          <h2>The services in this lab.</h2>
-          <p>Each one is a live Registry Stack service working on seeded demo data. The pill shows whether it is responding right now.</p>
+          <h2>The services in this lab, and how to call them.</h2>
+          <p>Each card is a live Registry Stack service running on seeded demo data. The pill shows whether it is responding right now. Where a service needs a token, its public demo credentials and a ready-made curl command sit right here. They only reach seeded demo data, never a real or production system.</p>
         </div>
         <div class="grid" id="services-grid"></div>
       </div>
@@ -500,16 +566,6 @@ def homepage_html(title: str) -> bytes:
           <p>Open the offer, sign in as the demo citizen, and the wallet should receive a signed proof that the person is alive. This demonstrates a public service getting the answer it needs without seeing the whole civil registry record. You will need a compatible digital wallet to open the offer.</p>
         </div>
         <div class="wallet-grid" id="wallet-grid"></div>
-      </div>
-    </section>
-    <section class="band" id="credentials">
-      <div class="band-inner">
-        <div class="section-heading">
-          <p class="eyebrow">Demo credentials</p>
-          <h2>Developer credentials for the demo APIs.</h2>
-          <p>These bearer tokens are public on purpose. They only reach seeded demo data, never a real or production system. Copy a token, or the ready-made curl command, to call a service yourself.</p>
-        </div>
-        <div class="grid" id="credentials-grid"></div>
       </div>
     </section>
   </main>
@@ -553,45 +609,48 @@ def homepage_html(title: str) -> bytes:
       `;
     }}
 
-    function renderServices(services) {{
-      byId("services-grid").innerHTML = services.map((service) => `
-        <article class="credential">
+    function credentialBlock(credential) {{
+      const scopes = (credential.scopes || []).join(", ");
+      const token = credential.token || "";
+      const curl = credential.curl || "";
+      const headerRows = Object.entries(credential.required_headers || {{}})
+        .map(([key, value]) => `<div class="meta">${{escapeHtml(key)}}: ${{escapeHtml(value)}}</div>`)
+        .join("");
+      return `
+        <div class="cred-block">
           <div>
-            <h3>${{escapeHtml(service.label)}}</h3>
-            <div class="meta">${{escapeHtml(service.purpose || "")}}</div>
+            <div class="cred-name">${{escapeHtml(credential.label)}}</div>
+            <div class="meta">${{escapeHtml(scopes)}}</div>
+            ${{headerRows}}
           </div>
-          <div><span class="pill" data-status-for="${{escapeHtml(service.id)}}">checking</span></div>
+          <div class="token-box">
+            <code class="token" title="${{escapeHtml(token)}}">${{escapeHtml(token || "Missing env value")}}</code>
+            <button type="button" data-copy="${{escapeHtml(token)}}" ${{token ? "" : "disabled"}}>Copy token</button>
+          </div>
+          <pre>${{escapeHtml(curl)}}</pre>
           <div class="actions">
-            <a class="button" href="${{escapeHtml(service.url)}}" target="_blank" rel="noreferrer">Open</a>
+            <button type="button" data-copy="${{escapeHtml(curl)}}">Copy curl</button>
           </div>
-        </article>
-      `).join("");
+        </div>
+      `;
     }}
 
-    function renderCredentials(credentials) {{
-      byId("credentials-grid").innerHTML = credentials.map((credential) => {{
-        const scopes = (credential.scopes || []).join(", ");
-        const token = credential.token || "";
-        const curl = credential.curl || "";
-        const headerRows = Object.entries(credential.required_headers || {{}})
-          .map(([key, value]) => `<div class="meta">${{escapeHtml(key)}}: ${{escapeHtml(value)}}</div>`)
-          .join("");
+    function renderServices(services) {{
+      byId("services-grid").innerHTML = services.map((service) => {{
+        const creds = (service.credentials || []).map(credentialBlock).join("");
+        // The Open link starts hidden; loadStatus reveals it only when the service is
+        // reachable and not auth-gated, so we never link to a 401 page or a dead host.
         return `
           <article class="credential">
             <div>
-              <h3>${{escapeHtml(credential.label)}}</h3>
-              <div class="meta">${{escapeHtml(scopes)}}</div>
-              ${{headerRows}}
+              <h3>${{escapeHtml(service.label)}}</h3>
+              <div class="meta">${{escapeHtml(service.purpose || "")}}</div>
             </div>
-            <div class="token-box">
-              <code class="token" title="${{escapeHtml(token)}}">${{escapeHtml(token || "Missing env value")}}</code>
-              <button type="button" data-copy="${{escapeHtml(token)}}" ${{token ? "" : "disabled"}}>Copy token</button>
+            <div class="status-row">
+              <span class="pill" data-status-for="${{escapeHtml(service.id)}}">checking</span>
+              <a class="button hidden" data-open-for="${{escapeHtml(service.id)}}" href="${{escapeHtml(service.url)}}" target="_blank" rel="noreferrer">Open</a>
             </div>
-            <pre>${{escapeHtml(curl)}}</pre>
-            <div class="actions">
-              <a class="button" href="${{escapeHtml(credential.service_url)}}" target="_blank" rel="noreferrer">Open service</a>
-              <button type="button" data-copy="${{escapeHtml(curl)}}">Copy curl</button>
-            </div>
+            ${{creds ? `<div class="cred-list">${{creds}}</div>` : ""}}
           </article>
         `;
       }}).join("");
@@ -611,6 +670,10 @@ def homepage_html(title: str) -> bytes:
         let bad = 0;
         for (const check of status.checks || []) {{
           const node = document.querySelector(`[data-status-for="${{CSS.escape(check.id)}}"]`);
+          const openNode = document.querySelector(`[data-open-for="${{CSS.escape(check.id)}}"]`);
+          // Only offer the Open link when there is something to see: the service is up and its
+          // base URL is browsable unauthenticated. A token-gated API or a down host shows nothing.
+          if (openNode) openNode.classList.toggle("hidden", !(check.ok && check.browsable));
           if (check.ok) {{
             ok += 1;
             if (node) {{
@@ -643,7 +706,6 @@ def homepage_html(title: str) -> bytes:
       byId("missing-count").textContent = (data.credentials || []).filter((credential) => !credential.configured).length;
       renderServices(data.services || []);
       renderWallet(data.wallet || {{}});
-      renderCredentials(data.credentials || []);
       wireCopyButtons();
       loadStatus();
     }}

@@ -74,6 +74,8 @@ class StatusClassificationTest(unittest.TestCase):
         self.assertTrue(check["ok"])
         self.assertFalse(check["auth_gated"])
         self.assertEqual(check["status_code"], 200)
+        # No credential targets this service, so its base URL is probed: 200 means browsable.
+        self.assertTrue(check["browsable"])
 
     def test_401_is_up_and_auth_gated(self) -> None:
         def fake(req, timeout=None):
@@ -83,6 +85,8 @@ class StatusClassificationTest(unittest.TestCase):
         self.assertTrue(check["ok"])
         self.assertTrue(check["auth_gated"])
         self.assertEqual(check["status_code"], 401)
+        # A 401 at the base URL is nothing to see in a browser.
+        self.assertFalse(check["browsable"])
 
     def test_403_is_up_and_auth_gated(self) -> None:
         def fake(req, timeout=None):
@@ -91,6 +95,7 @@ class StatusClassificationTest(unittest.TestCase):
         check = self._check(fake)
         self.assertTrue(check["ok"])
         self.assertTrue(check["auth_gated"])
+        self.assertFalse(check["browsable"])
 
     def test_5xx_is_down(self) -> None:
         def fake(req, timeout=None):
@@ -100,6 +105,7 @@ class StatusClassificationTest(unittest.TestCase):
         self.assertFalse(check["ok"])
         self.assertFalse(check["auth_gated"])
         self.assertEqual(check["status_code"], 503)
+        self.assertFalse(check["browsable"])
 
     def test_transport_error_is_down(self) -> None:
         def fake(req, timeout=None):
@@ -109,6 +115,7 @@ class StatusClassificationTest(unittest.TestCase):
         self.assertFalse(check["ok"])
         self.assertFalse(check["auth_gated"])
         self.assertIsNone(check["status_code"])
+        self.assertFalse(check["browsable"])
 
 
 class AuthSchemeTest(unittest.TestCase):
@@ -193,6 +200,132 @@ class StatusProbeHeaderTest(unittest.TestCase):
         req = self._probe_request(None)
         self.assertEqual(req.get_header("Authorization"), "Bearer secret-token")
         self.assertIsNone(req.get_header("X-api-key"))
+
+
+class BrowsableProbeTest(unittest.TestCase):
+    """The Open-link signal: a credential-free service is probed unauthenticated at its base
+    URL (2xx/3xx means there is something to see); a service that hands out a credential is a
+    protected API, so it is treated as not browsable and its base URL is never probed."""
+
+    def setUp(self) -> None:
+        self._saved = dict(os.environ)
+
+    def tearDown(self) -> None:
+        os.environ.clear()
+        os.environ.update(self._saved)
+
+    class _Resp:
+        def __init__(self, status: int) -> None:
+            self.status = status
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def _run(self, service, credentials=None, base_status=200):
+        config = {"services": [service]}
+        if credentials:
+            config["credentials"] = credentials
+        reqs = []
+
+        def fake(req, timeout=None):
+            reqs.append(req)
+            if req.full_url.rstrip("/") == service["url"].rstrip("/"):  # the base-URL probe
+                if base_status >= 400:
+                    raise urllib.error.HTTPError(req.full_url, base_status, "x", Message(), None)
+                return self._Resp(base_status)
+            return self._Resp(200)  # the authenticated status probe is healthy
+
+        with mock.patch.object(server.urllib.request, "urlopen", fake):
+            check = server.status_checks(config, timeout=1.0)["checks"][0]
+        return check, reqs
+
+    def _base_requests(self, reqs, url):
+        return [r for r in reqs if r.full_url.rstrip("/") == url.rstrip("/")]
+
+    def test_credential_free_service_probes_base_url_unauthenticated(self) -> None:
+        service = {"id": "ui", "label": "UI", "url": "https://ui.example", "status_path": "/health"}
+        check, reqs = self._run(service, base_status=200)
+        self.assertTrue(check["browsable"])
+        base = self._base_requests(reqs, service["url"])
+        self.assertEqual(len(base), 1)
+        self.assertIsNone(base[0].get_header("Authorization"))
+
+    def test_base_url_4xx_is_not_browsable(self) -> None:
+        service = {"id": "ui", "label": "UI", "url": "https://ui.example", "status_path": "/health"}
+        check, _ = self._run(service, base_status=401)
+        self.assertFalse(check["browsable"])
+
+    def test_credentialed_service_is_not_browsable_and_skips_base_probe(self) -> None:
+        os.environ["K_RAW"] = "tok"
+        service = {
+            "id": "relay",
+            "label": "Relay",
+            "url": "https://relay.example",
+            "status_path": "/healthz",
+            "status_credential_id": "k",
+        }
+        creds = [{"id": "k", "env": "K_RAW", "service_url": "https://relay.example"}]
+        check, reqs = self._run(service, credentials=creds, base_status=200)
+        self.assertFalse(check["browsable"])
+        self.assertEqual(self._base_requests(reqs, service["url"]), [])
+
+
+class GroupCredentialsTest(unittest.TestCase):
+    """enrich_config attaches each credential to its service and never drops one."""
+
+    def _config(self) -> dict:
+        return {
+            "services": [
+                {"id": "relay", "label": "Relay", "url": "https://relay.example"},
+                {"id": "ui", "label": "UI", "url": "https://ui.example"},
+            ],
+            "credentials": [
+                {"id": "a", "env": "A_RAW", "service_url": "https://relay.example", "example": {"path": "/x"}},
+                {"id": "b", "env": "B_RAW", "service_url": "https://relay.example", "example": {"path": "/y"}},
+            ],
+        }
+
+    def test_credentials_attached_to_matching_service(self) -> None:
+        services = {s["id"]: s for s in server.enrich_config(self._config())["services"]}
+        self.assertEqual([c["id"] for c in services["relay"]["credentials"]], ["a", "b"])
+
+    def test_service_without_credentials_gets_empty_list(self) -> None:
+        services = {s["id"]: s for s in server.enrich_config(self._config())["services"]}
+        self.assertEqual(services["ui"]["credentials"], [])
+
+    def test_top_level_credentials_preserved(self) -> None:
+        # The missing-token count and the status probe lookup both read data.credentials.
+        enriched = server.enrich_config(self._config())
+        self.assertEqual([c["id"] for c in enriched["credentials"]], ["a", "b"])
+
+    def test_unmatched_credential_is_surfaced_not_dropped(self) -> None:
+        config = self._config()
+        config["credentials"].append(
+            {"id": "orphan", "env": "O_RAW", "service_url": "https://nowhere.example", "example": {"path": "/z"}}
+        )
+        enriched = server.enrich_config(config)
+        grouped_ids = {c["id"] for service in enriched["services"] for c in service["credentials"]}
+        self.assertIn("orphan", grouped_ids)
+
+
+class HomepageHtmlTest(unittest.TestCase):
+    """The credentials section is merged into services, and Open links are status-gated."""
+
+    def setUp(self) -> None:
+        self.html = server.homepage_html("Registry Lab").decode("utf-8")
+
+    def test_credentials_section_is_merged_into_services(self) -> None:
+        self.assertIn('id="services-grid"', self.html)
+        self.assertNotIn('id="credentials-grid"', self.html)
+        self.assertNotIn("#credentials", self.html)
+
+    def test_open_link_renders_hidden_and_is_status_gated(self) -> None:
+        # Open links start hidden; loadStatus only reveals services that are up and browsable.
+        self.assertIn("data-open-for", self.html)
+        self.assertIn("check.ok && check.browsable", self.html)
 
 
 if __name__ == "__main__":
