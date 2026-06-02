@@ -221,6 +221,7 @@ oid4vci:
       userinfo_url: https://esignet.lab.registrystack.org/v1/esignet/oidc/userinfo
       scopes:
         - openid
+        - profile
       login_state_ttl_seconds: 300
   credential_configurations:
     person_is_alive_sd_jwt:
