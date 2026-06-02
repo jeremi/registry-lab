@@ -87,6 +87,13 @@ services:
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: ${REGISTRY_LAB_ESIGNET_POSTGRES_PASSWORD:-replace-in-coolify}
       MOSIP_ESIGNET_HOST: esignet.lab.registrystack.org
+      # The `local` profile (active_profile_env: default,local) hardcodes
+      # mosip.mockidentitysystem.esignet.issuer-id=http://localhost:8088/v1/esignet,
+      # which it stamps as the `iss` of the signed userinfo JWS, ignoring
+      # MOSIP_ESIGNET_HOST. RPs validate the userinfo `iss` against the OP's
+      # discovery issuer, so override it (OS env outranks the profile property)
+      # to the bare discovery issuer the id_token also uses.
+      MOSIP_MOCKIDENTITYSYSTEM_ESIGNET_ISSUER_ID: https://esignet.lab.registrystack.org
       MOSIP_MOCK_IDA_KYC_TRANSACTION_TIMEOUT_SECS: "900"
       MOSIP_MOCK_IDA_IDENTITY_OPENID_CLAIMS_MAPPING: '{"individualId":"individual_id","fullName":"name","givenName":"given_name","familyName":"family_name","email":"email","phone":"phone_number","gender":"gender","dateOfBirth":"birthdate","encodedPhoto":"picture","preferredUsername":"preferred_username","middleName":"middle_name","nickName":"nickname","streetAddress":"address.street_address","locality":"address.locality","region":"address.region","country":"address.country","postalCode":"address.postal_code","preferredLang":"locale","zoneInfo":"address.zoneinfo"}'
       # Relocate the PKCS12 keymanager keystore (the master key) onto a named
