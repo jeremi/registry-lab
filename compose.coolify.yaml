@@ -352,8 +352,9 @@ services:
       openfn-dhis2-sidecar:
         condition: service_started
 
-  opencrvs-dci-notary:
-    <<: *notary-common
+  opencrvs-dci-notary-config:
+    image: ${REGISTRY_LAB_ALPINE_IMAGE:-alpine:3.20}
+    restart: "no"
     entrypoint: ["/bin/sh", "-eu", "-c"]
     command:
       - |
@@ -362,19 +363,29 @@ services:
         escaped="$$(printf '%s' "$${opencrvs_base_url}" | sed 's/[&|]/\\&/g')"
         sed "s|__OPENCRVS_DCI_BASE_URL__|$${escaped}|g" \
           /etc/registry-notary/opencrvs-dci-notary.yaml.template \
-          > /tmp/opencrvs-dci-notary.yaml
-        exec registry-notary --config /tmp/opencrvs-dci-notary.yaml
+          > /out/opencrvs-dci-notary.yaml
+    environment:
+      OPENCRVS_DCI_BASE_URL: ${OPENCRVS_DCI_BASE_URL:-}
+    volumes:
+      - cfg-notary:/etc/registry-notary:ro
+      - opencrvs-notary-config:/out
+    depends_on:
+      config-loader:
+        condition: service_completed_successfully
+
+  opencrvs-dci-notary:
+    <<: *notary-common
+    command: ["--config", "/etc/registry-notary-rendered/opencrvs-dci-notary.yaml"]
     environment:
       <<: *notary-env
       OPENCRVS_EVIDENCE_CLIENT_TOKEN_HASH: ${OPENCRVS_EVIDENCE_CLIENT_TOKEN_HASH:-}
       OPENCRVS_DCI_CLIENT_ID: ${OPENCRVS_DCI_CLIENT_ID:-}
       OPENCRVS_DCI_CLIENT_SECRET: ${OPENCRVS_DCI_CLIENT_SECRET:-}
       OPENCRVS_DCI_SHA_SECRET: ${OPENCRVS_DCI_SHA_SECRET:-}
-      OPENCRVS_DCI_BASE_URL: ${OPENCRVS_DCI_BASE_URL:-}
     volumes:
-      - cfg-notary:/etc/registry-notary:ro
+      - opencrvs-notary-config:/etc/registry-notary-rendered:ro
     depends_on:
-      config-loader:
+      opencrvs-dci-notary-config:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
@@ -395,3 +406,4 @@ volumes:
   cfg-static-scripts:
   cfg-lab-homepage:
   static-content:
+  opencrvs-notary-config:
