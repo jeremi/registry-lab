@@ -111,5 +111,89 @@ class StatusClassificationTest(unittest.TestCase):
         self.assertIsNone(check["status_code"])
 
 
+class AuthSchemeTest(unittest.TestCase):
+    """api_key credentials present via X-Api-Key; everything else via Bearer."""
+
+    def test_helper_defaults_to_bearer(self) -> None:
+        self.assertEqual(server.auth_header_pair({}, "tok"), ("Authorization", "Bearer tok"))
+
+    def test_helper_api_key(self) -> None:
+        self.assertEqual(
+            server.auth_header_pair({"auth_scheme": "api_key"}, "tok"),
+            ("X-Api-Key", "tok"),
+        )
+
+    def test_curl_example_uses_x_api_key(self) -> None:
+        cred = {
+            "service_url": "https://n.example",
+            "example": {"method": "GET", "path": "/p"},
+            "auth_scheme": "api_key",
+        }
+        curl = server.curl_example(cred, "tok")
+        self.assertIn("X-Api-Key: tok", curl)
+        self.assertNotIn("Authorization: Bearer", curl)
+
+    def test_curl_example_defaults_to_bearer(self) -> None:
+        cred = {"service_url": "https://n.example", "example": {"method": "GET", "path": "/p"}}
+        self.assertIn("Authorization: Bearer tok", server.curl_example(cred, "tok"))
+
+
+class StatusProbeHeaderTest(unittest.TestCase):
+    """The status probe attaches the credential's token in its native scheme."""
+
+    def setUp(self) -> None:
+        self._saved = dict(os.environ)
+
+    def tearDown(self) -> None:
+        os.environ.clear()
+        os.environ.update(self._saved)
+
+    def _probe_request(self, auth_scheme):
+        os.environ["PROBE_TOKEN_RAW"] = "secret-token"
+        cred = {"id": "k", "env": "PROBE_TOKEN_RAW"}
+        if auth_scheme:
+            cred["auth_scheme"] = auth_scheme
+        config = {
+            "services": [
+                {
+                    "id": "n",
+                    "label": "N",
+                    "url": "https://n.example",
+                    "status_path": "/x",
+                    "status_credential_id": "k",
+                }
+            ],
+            "credentials": [cred],
+        }
+        captured = {}
+
+        class Resp:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake(req, timeout=None):
+            captured["req"] = req
+            return Resp()
+
+        with mock.patch.object(server.urllib.request, "urlopen", fake):
+            server.status_checks(config, timeout=1.0)
+        return captured["req"]
+
+    def test_api_key_probe_uses_x_api_key(self) -> None:
+        req = self._probe_request("api_key")
+        self.assertEqual(req.get_header("X-api-key"), "secret-token")
+        self.assertIsNone(req.get_header("Authorization"))
+
+    def test_bearer_probe_uses_authorization(self) -> None:
+        req = self._probe_request(None)
+        self.assertEqual(req.get_header("Authorization"), "Bearer secret-token")
+        self.assertIsNone(req.get_header("X-api-key"))
+
+
 if __name__ == "__main__":
     unittest.main()

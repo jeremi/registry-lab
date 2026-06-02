@@ -69,6 +69,17 @@ def credential_lookup(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
     }
 
 
+def auth_header_pair(credential: dict[str, Any], token: str) -> tuple[str, str]:
+    """Return the (name, value) header used to present this credential's token.
+
+    Notary api_key credentials authenticate via the X-Api-Key header; relays and
+    bearer tokens use Authorization: Bearer (see auth.mode in the notary configs).
+    """
+    if credential.get("auth_scheme") == "api_key":
+        return "X-Api-Key", token
+    return "Authorization", f"Bearer {token}"
+
+
 def enrich_config(config: dict[str, Any]) -> dict[str, Any]:
     env_values = public_env(config)
     credentials = []
@@ -77,7 +88,11 @@ def enrich_config(config: dict[str, Any]) -> dict[str, Any]:
         token = env_values.get(item.get("env", ""), "")
         item["token"] = token
         item["configured"] = bool(token)
-        item["auth_header"] = f"Authorization: Bearer {token}" if token else ""
+        if token:
+            name, value = auth_header_pair(item, token)
+            item["auth_header"] = f"{name}: {value}"
+        else:
+            item["auth_header"] = ""
         item["curl"] = curl_example(item, token)
         credentials.append(item)
 
@@ -95,7 +110,8 @@ def curl_example(credential: dict[str, Any], token: str) -> str:
     url = f"{base_url}{path}"
     pieces = ["curl", "-fsS", "-X", method, shlex.quote(url)]
     if token:
-        pieces.extend(["-H", shlex.quote(f"Authorization: Bearer {token}")])
+        name, value = auth_header_pair(credential, token)
+        pieces.extend(["-H", shlex.quote(f"{name}: {value}")])
     for header, value in (credential.get("required_headers") or {}).items():
         pieces.extend(["-H", shlex.quote(f"{header}: {value}")])
     return " ".join(pieces)
@@ -113,7 +129,8 @@ def status_checks(config: dict[str, Any], timeout: float) -> dict[str, Any]:
         if credential_id and credential_id in credentials:
             token = credentials[credential_id].get("token", "")
         if token:
-            headers["Authorization"] = f"Bearer {token}"
+            name, value = auth_header_pair(credentials[credential_id], token)
+            headers[name] = value
         request = urllib.request.Request(url, headers=headers, method="GET")
         result: dict[str, Any] = {
             "id": service.get("id"),
