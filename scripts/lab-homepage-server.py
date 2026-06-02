@@ -53,8 +53,12 @@ def public_env(config: dict[str, Any]) -> dict[str, str]:
 
 
 def apply_env_file(values: dict[str, str]) -> None:
+    # Fill values that are absent or empty; a non-empty environment value wins.
+    # Compose passes each token through as ${VAR:-}, so the key is present but empty
+    # when nothing is set in the deploy environment, and setdefault would not fill it.
     for key, value in values.items():
-        os.environ.setdefault(key, value)
+        if not os.environ.get(key):
+            os.environ[key] = value
 
 
 def credential_lookup(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -116,6 +120,7 @@ def status_checks(config: dict[str, Any], timeout: float) -> dict[str, Any]:
             "label": service.get("label"),
             "url": service.get("url"),
             "status_url": url,
+            "auth_gated": False,
         }
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -123,8 +128,11 @@ def status_checks(config: dict[str, Any], timeout: float) -> dict[str, Any]:
                 result["ok"] = 200 <= response.status < 400
         except urllib.error.HTTPError as error:
             result["status_code"] = error.code
-            result["ok"] = False
-            result["error"] = HTTPStatus(error.code).phrase if error.code in HTTPStatus._value2member_map_ else "HTTP error"
+            # A 401/403 proves the service is reachable and enforcing auth: that is up, not down.
+            result["auth_gated"] = error.code in (401, 403)
+            result["ok"] = result["auth_gated"]
+            if not result["ok"]:
+                result["error"] = HTTPStatus(error.code).phrase if error.code in HTTPStatus._value2member_map_ else "HTTP error"
         except Exception as error:  # noqa: BLE001
             result["status_code"] = None
             result["ok"] = False
@@ -589,7 +597,7 @@ def homepage_html(title: str) -> bytes:
           if (check.ok) {{
             ok += 1;
             if (node) {{
-              node.textContent = `up - ${{check.status_code}}`;
+              node.textContent = check.auth_gated ? "up - auth required" : `up - ${{check.status_code}}`;
               node.className = "pill ok";
             }}
           }} else {{
@@ -675,6 +683,11 @@ def main() -> int:
     args = parser.parse_args()
 
     env_file = args.env_file
+    if env_file is None:
+        # Default to the committed demo credentials file sitting beside the config file.
+        candidate = args.config.with_name(DEFAULT_ENV_FILE.name)
+        if candidate.exists():
+            env_file = candidate
     if env_file is not None:
         apply_env_file(parse_env_file(env_file))
 
