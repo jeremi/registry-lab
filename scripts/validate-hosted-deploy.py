@@ -853,7 +853,24 @@ def collect_service_contract_text(compose: dict[str, Any], root: Path, service: 
         chunks.append(json.dumps(service_config, sort_keys=True))
         for _path, text in iter_referenced_file_texts(root, service_config):
             chunks.append(text)
+        config_path = hosted_notary_config_path(root, service_config)
+        if config_path and config_path.exists():
+            chunks.append(config_path.read_text(encoding="utf-8"))
     return "\n".join(chunks)
+
+
+def hosted_notary_config_path(root: Path, service_config: dict[str, Any]) -> Path | None:
+    command = service_config.get("command")
+    if not isinstance(command, list):
+        return None
+    for index, value in enumerate(command[:-1]):
+        if value != "--config":
+            continue
+        config_path = str(command[index + 1])
+        name = Path(config_path).name
+        if name:
+            return root / "config" / "coolify" / "notary" / name
+    return None
 
 
 def extract_citizen_esignet_issuer(compose: dict[str, Any], root: Path) -> str | None:

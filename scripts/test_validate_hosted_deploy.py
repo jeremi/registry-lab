@@ -216,6 +216,42 @@ class HostedDeployValidationTest(unittest.TestCase):
         issues = self._validate(compose, self._valid_esignet())
         self.assertIssue(issues, "missing-oid4vci-format")
 
+    def test_reads_named_volume_notary_config_for_oid4vci_assertions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_dir = root / "config" / "coolify" / "notary"
+            config_dir.mkdir(parents=True)
+            (config_dir / "citizen-civil-notary.yaml").write_text(
+                """
+oid4vci:
+  credential_configurations:
+    person_is_alive_sd_jwt:
+      format: dc+sd-jwt
+""",
+                encoding="utf-8",
+            )
+            compose = self._valid_registry_lab()
+            env = compose["services"]["citizen-civil-notary"]["environment"]
+            del env["CITIZEN_OID4VCI_CREDENTIAL_CONFIGURATION_ID"]
+            del env["CITIZEN_OID4VCI_FORMAT"]
+            compose["services"]["citizen-civil-notary"]["command"] = [
+                "--config",
+                "/etc/registry-notary/citizen-civil-notary.yaml",
+            ]
+            compose["services"]["citizen-civil-notary"]["volumes"] = [
+                "cfg-notary:/etc/registry-notary:ro"
+            ]
+            issues = self.validator.validate_artifacts(
+                {
+                    "registry-lab": compose,
+                    "esignet": self._valid_esignet(),
+                },
+                {"registry-lab": root, "esignet": root},
+            )
+
+        self.assertNoIssue(issues, "missing-credential-configuration")
+        self.assertNoIssue(issues, "missing-oid4vci-format")
+
     def test_rejects_relay_healthcheck_that_calls_notary_binary(self) -> None:
         compose = self._valid_registry_lab()
         compose["services"]["civil-registry-relay"]["healthcheck"] = {
@@ -277,6 +313,10 @@ class HostedDeployValidationTest(unittest.TestCase):
     def assertIssue(self, issues, code: str) -> None:
         codes = [issue.code for issue in issues]
         self.assertIn(code, codes, [str(issue) for issue in issues])
+
+    def assertNoIssue(self, issues, code: str) -> None:
+        codes = [issue.code for issue in issues]
+        self.assertNotIn(code, codes, [str(issue) for issue in issues])
 
     def _validate(self, registry_lab: dict, esignet: dict):
         return self.validator.validate_artifacts(

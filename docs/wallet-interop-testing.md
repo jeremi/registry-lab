@@ -61,6 +61,7 @@ CITIZEN_OID4VCI_CREDENTIAL_ISSUER="https://your-tunnel.example" \
 CITIZEN_OID4VCI_CREDENTIAL_ENDPOINT="https://your-tunnel.example/oid4vci/credential" \
 CITIZEN_OID4VCI_OFFER_ENDPOINT="https://your-tunnel.example/oid4vci/credential-offer" \
 CITIZEN_OID4VCI_NONCE_ENDPOINT="https://your-tunnel.example/oid4vci/nonce" \
+CITIZEN_OID4VCI_VCT="https://your-tunnel.example/credentials/citizen-civil-status/v1" \
 just citizen-oid4vci-code
 ```
 
