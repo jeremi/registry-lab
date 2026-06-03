@@ -198,6 +198,9 @@ oid4vci:
   display:
     - name: Civil Registry Notary
       locale: en-US
+      logo:
+        uri: https://registrystack.org/favicon.svg
+        alt_text: Registry Stack logo
   nonce:
     enabled: true
     ttl_seconds: 300
@@ -234,9 +237,15 @@ oid4vci:
       display_name: Person is alive
       display:
         locale: en-US
+        logo:
+          url: https://registrystack.org/favicon.svg
+          alt_text: Registry Stack logo
         description: Proof that the civil registry currently records this person as alive.
         background_color: "#0057B8"
         text_color: "#FFFFFF"
+        background_image:
+          url: https://registrystack.org/og-image.png
+          alt_text: Registry Stack public service delivery illustration
       proof_signing_alg_values_supported:
         - EdDSA
       cryptographic_binding_methods_supported:
