@@ -195,6 +195,9 @@ oid4vci:
   credential_endpoint: https://citizen-notary.lab.registrystack.org/oid4vci/credential
   offer_endpoint: https://citizen-notary.lab.registrystack.org/oid4vci/credential-offer
   nonce_endpoint: https://citizen-notary.lab.registrystack.org/oid4vci/nonce
+  display:
+    - name: Civil Registry Notary
+      locale: en-US
   nonce:
     enabled: true
     ttl_seconds: 300
@@ -231,6 +234,11 @@ oid4vci:
       scope: person-is-alive
       vct: https://citizen-notary.lab.registrystack.org/credentials/citizen-civil-status/v1
       display_name: Person is alive
+      display:
+        locale: en-US
+        description: Proof that the civil registry currently records this person as alive.
+        background_color: "#0057B8"
+        text_color: "#FFFFFF"
       proof_signing_alg_values_supported:
         - EdDSA
       cryptographic_binding_methods_supported:
