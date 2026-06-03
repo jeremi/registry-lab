@@ -327,6 +327,13 @@ class HomepageHtmlTest(unittest.TestCase):
         self.assertIn("data-open-for", self.html)
         self.assertIn("check.ok && check.browsable", self.html)
 
+    def test_wallet_section_guides_hosted_issuance_flow(self) -> None:
+        self.assertIn("Start issuance", self.html)
+        self.assertIn("/oid4vci/offer/start?credential_configuration_id=", self.html)
+        self.assertIn("https://wallet.lab.registrystack.org/signup", self.html)
+        self.assertIn("openid-credential-offer://", self.html)
+        self.assertIn("no longer requires a separate issuer PIN", self.html)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -477,6 +477,29 @@ def homepage_html(title: str) -> bytes:
     .kv span {{ color: var(--registry-teal); font-family: var(--registry-mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0; }}
     .kv strong {{ color: var(--registry-ink); overflow-wrap: anywhere; }}
     .actions {{ display: flex; gap: 10px; flex-wrap: wrap; }}
+    .step-list {{ display: grid; gap: 12px; grid-column: 1 / -1; }}
+    .step-card {{
+      align-items: start;
+      background: #ffffff;
+      border: 1px solid var(--registry-rule);
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 34px minmax(0, 1fr);
+      padding: 18px;
+    }}
+    .step-number {{
+      align-items: center;
+      background: var(--registry-blue);
+      color: #ffffff;
+      display: inline-flex;
+      font-family: var(--registry-mono);
+      font-size: 13px;
+      font-weight: 700;
+      height: 34px;
+      justify-content: center;
+      width: 34px;
+    }}
+    .step-card p {{ color: var(--registry-muted); }}
     /* One service per row; its credentials tile inside so wide services use the space. */
     #services-grid {{ grid-template-columns: 1fr; }}
     .status-row {{ display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }}
@@ -562,8 +585,8 @@ def homepage_html(title: str) -> bytes:
       <div class="band-inner">
         <div class="section-heading">
           <p class="eyebrow">Wallet test</p>
-          <h2>Try a citizen wallet proof.</h2>
-          <p>Open the offer, sign in as the demo citizen, and the wallet should receive a signed proof that the person is alive. This demonstrates a public service getting the answer it needs without seeing the whole civil registry record. You will need a compatible digital wallet to open the offer.</p>
+          <h2>Issue a proof to the hosted wallet.</h2>
+          <p>Start the citizen Notary flow, sign in as the demo citizen, then paste the generated credential offer into the hosted wallet. The wallet should receive a signed proof that the civil registry says the person is alive.</p>
         </div>
         <div class="wallet-grid" id="wallet-grid"></div>
       </div>
@@ -596,16 +619,27 @@ def homepage_html(title: str) -> bytes:
     }}
 
     function renderWallet(wallet) {{
-      const offer = wallet.offer_url || "";
+      const issuer = wallet.issuer || "";
+      const credentialConfigurationId = wallet.credential_configuration_id || "";
+      const offerStart = wallet.offer_start_url || (
+        issuer && credentialConfigurationId
+          ? `${{issuer.replace(/\\/$/, "")}}/oid4vci/offer/start?credential_configuration_id=${{encodeURIComponent(credentialConfigurationId)}}`
+          : wallet.offer_url || ""
+      );
+      const walletUrl = wallet.wallet_url || "https://wallet.lab.registrystack.org/signup";
       const identity = wallet.demo_identity || {{}};
       const negative = wallet.negative_control || {{}};
       byId("wallet-grid").innerHTML = `
-        <div class="kv"><span>Start here</span><strong>Open the credential offer</strong><div class="meta">Your wallet should ask you to sign in, then request the proof.</div><div class="actions"><a class="button primary" href="${{escapeHtml(offer)}}" target="_blank" rel="noreferrer">Open offer</a><button type="button" data-copy="${{escapeHtml(offer)}}">Copy URL</button></div></div>
-        <div class="kv"><span>Sign in as</span><strong>${{escapeHtml(identity.name)}}</strong><div class="meta">Use ID ${{escapeHtml(identity.identifier)}}, code ${{escapeHtml(identity.generated_code)}}, and PIN ${{escapeHtml(identity.pin)}} if asked.</div></div>
+        <div class="step-list" aria-label="Wallet issuance steps">
+          <div class="step-card"><span class="step-number">1</span><div><strong>Open the hosted wallet.</strong><p>Create or open a demo wallet, then use its scan or import-offer screen.</p><div class="actions"><a class="button" href="${{escapeHtml(walletUrl)}}" target="_blank" rel="noreferrer">Open wallet</a><button type="button" data-copy="${{escapeHtml(walletUrl)}}">Copy wallet URL</button></div></div></div>
+          <div class="step-card"><span class="step-number">2</span><div><strong>Start credential issuance.</strong><p>The Notary will redirect to eSignet before it renders the wallet offer.</p><div class="actions"><a class="button primary" href="${{escapeHtml(offerStart)}}" target="_blank" rel="noreferrer">Start issuance</a><button type="button" data-copy="${{escapeHtml(offerStart)}}">Copy start URL</button></div></div></div>
+          <div class="step-card"><span class="step-number">3</span><div><strong>Copy the generated offer into the wallet.</strong><p>After login, copy the <code>openid-credential-offer://</code> URI from the Notary page and paste it into the wallet scan/import screen. The hosted demo no longer requires a separate issuer PIN.</p></div></div>
+        </div>
+        <div class="kv"><span>Sign in as</span><strong>${{escapeHtml(identity.name)}}</strong><div class="meta">Use ID ${{escapeHtml(identity.identifier)}}, OTP ${{escapeHtml(identity.generated_code)}}, and PIN ${{escapeHtml(identity.pin)}} if eSignet asks.</div></div>
         <div class="kv"><span>Your wallet should receive</span><strong>${{escapeHtml(wallet.credential_name || wallet.credential_configuration_id)}}</strong><div class="meta">${{escapeHtml(identity.expected_result || wallet.user_story || "")}}</div></div>
         <div class="kv"><span>Why this matters</span><strong>A service gets a yes/no proof, not the full civil record.</strong><div class="meta">${{escapeHtml(wallet.user_story || "")}}</div></div>
         <div class="kv"><span>Test a rejected case</span><strong>${{escapeHtml(negative.identifier)}}</strong><div class="meta">${{escapeHtml(negative.expected_result)}}</div></div>
-        <div class="kv"><span>For developers</span><strong>Issuer and credential type</strong><div class="meta">${{escapeHtml(wallet.issuer)}} &middot; ${{escapeHtml(wallet.credential_configuration_id)}}</div></div>
+        <div class="kv"><span>For developers</span><strong>Issuer and credential type</strong><div class="meta">${{escapeHtml(issuer)}} &middot; ${{escapeHtml(credentialConfigurationId)}}</div></div>
       `;
     }}
 
