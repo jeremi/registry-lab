@@ -39,6 +39,13 @@ available `just` commands. The tutorials below focus on one working path each.
 - [Service-first discovery](service-first-discovery.md): how the lab walks from
   static metadata to service and evidence discovery.
 
+## Operations
+
+- [Operations posture lab contract](ops-posture-lab-contract.md): admin posture
+  endpoints and credentials exposed by the local lab.
+- [Lab 2 governed operations demo spec](lab2-governed-operations-demo-spec.md):
+  opt-in design for signed governed config verification and apply demos.
+
 ## Public API workspace
 
 - [Public API workspace spec](public-api-workspace.md): definition of done and
