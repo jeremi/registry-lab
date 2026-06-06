@@ -21,7 +21,7 @@ HTTP contracts.
 - Generated raw credential: `CIVIL_NOTARY_OPS_TOKEN`
 - Required scope: `registry_notary:ops_read`
 
-The civil notary admin listener runs on a dedicated internal port (8081) that is
+The civil notary admin listener runs on a dedicated internal port (8082) that is
 not published to the host in the default Lab 1 compose topology. The posture
 endpoint is reachable from within the Compose network but not directly from the
 host. Use the Lab 2 overlay for host-accessible notary posture (see below).
