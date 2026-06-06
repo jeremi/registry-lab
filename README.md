@@ -645,6 +645,12 @@ Use `just lab2-smoke` for the exhaustive gate. Use `just lab2-demo-reset` to
 remove only Lab 2 containers and volumes, and `just lab2-demo-open-evidence` to
 open the latest story file.
 
+The Bruno API workspace also includes a local-only `40 - Lab 2 Governed Config`
+folder for stepping through the governed apply story request by request. Open
+`requests/registry-lab/` in Bruno, select the `Local Lab 2` environment, paste
+the Lab 2 tokens from `.env`, and run the folder after `just lab2-generate` and
+`just lab2-up`.
+
 ## Source repositories
 
 This demo keeps runtime orchestration, fixtures, static metadata config, and
