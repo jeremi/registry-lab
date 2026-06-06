@@ -22,6 +22,35 @@ The product story is not "Lab 1 is old and Lab 2 is new." Lab 1 is the improved
 static baseline for simple deployments; Lab 2 is the operations demo that fully
 leverages the new governed configuration capabilities.
 
+```mermaid
+flowchart LR
+    subgraph Lab1["Lab 1: simple local config"]
+        StaticYaml["Committed Relay and Notary YAML"]
+        LocalTrust["Local config_trust state paths"]
+        NoRoots["No accepted_roots"]
+        StaticRuntime["Default Compose services"]
+        StaticSmoke["just smoke"]
+        StaticYaml --> LocalTrust --> NoRoots --> StaticRuntime --> StaticSmoke
+    end
+
+    subgraph Lab2["Lab 2: governed config overlay"]
+        Generate["just lab2-generate"]
+        Rendered["output/lab2/runtime-config"]
+        Roots["Generated demo TUF roots"]
+        Bundles["Signed config bundles"]
+        Overlay["Lab 2 Compose services"]
+        Demo["just lab2-demo and just lab2-smoke"]
+        Generate --> Rendered
+        Generate --> Roots
+        Roots --> Bundles
+        Rendered --> Overlay
+        Bundles --> Demo
+        Overlay --> Demo
+    end
+
+    StaticYaml -. "source templates" .-> Generate
+```
+
 ## Product Dependencies
 
 Lab 2 requires Lab vendor pins that include these product capabilities:
@@ -216,6 +245,29 @@ Add these commands:
     - the rate-limit policy comes from local config;
     - a second request after service restart inside the configured window is
       rejected.
+
+```mermaid
+sequenceDiagram
+    participant Operator
+    participant Bundle as Signed bundle
+    participant TUF as TUF repository
+    participant Product as Relay or Notary admin API
+    participant State as Local trust state
+    participant Runtime as Runtime snapshot
+
+    Operator->>Bundle: choose generated scenario
+    Bundle->>TUF: root, metadata, target, custom metadata
+    Operator->>Product: config apply-bundle
+    Product->>TUF: verify signature, threshold, freshness, target hash
+    Product->>State: check accepted root, anti-rollback, local approval
+    Product->>Product: compile candidate config
+    alt compatible live change
+        Product->>Runtime: swap runtime snapshot
+        Product-->>Operator: applied, last_apply_result accepted
+    else restart-required or rejected change
+        Product-->>Operator: rejected result with reason
+    end
+```
 
 ## Security Checks
 

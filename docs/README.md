@@ -9,6 +9,28 @@ Use this page to choose the right Registry Lab document. The root
 [`README.md`](../README.md) is the source of truth for setup, service ports, and
 available `just` commands. The tutorials below focus on one working path each.
 
+```mermaid
+flowchart TD
+    Root["Root README<br/>setup, ports, just commands"]
+    Ops["Operations posture lab contract<br/>admin posture and credentials"]
+    Lab2["Lab 2 governed operations demo spec<br/>signed config verification and apply"]
+    Discovery["Service-first discovery<br/>metadata to evidence discovery"]
+    Tutorials["First credential tutorials<br/>OpenCRVS, DHIS2, OpenFn"]
+    Citizen["Citizen and wallet flows<br/>OID4VCI and subject binding"]
+    Agri["Agriculture demo specs<br/>registry and consumer demos"]
+    API["Public API workspace<br/>manual API exploration"]
+
+    Root --> Ops
+    Root --> Discovery
+    Root --> Tutorials
+    Root --> Citizen
+    Root --> Agri
+    Root --> API
+    Ops --> Lab2
+    Discovery --> Tutorials
+    Tutorials --> API
+```
+
 ## First successful credential
 
 - [OpenCRVS DCI Notary tutorial](opencrvs-dci-notary-tutorial.md): use live
