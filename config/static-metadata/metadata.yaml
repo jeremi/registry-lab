@@ -569,7 +569,6 @@ datasets:
         iri: https://demo.example.gov/evidence-offerings/civil-child-status
         title: Vital Status Attestation
         description: Attestation that the civil registry currently records the subject as alive.
-        attestation_id: vital-status-attestation
         evidence_type: civil_child_status_evidence
         issuing_authority:
           id: civil_registration_authority
@@ -632,7 +631,6 @@ datasets:
         iri: https://demo.example.gov/evidence-offerings/household-support
         title: Program Enrollment Attestation
         description: Attestation that a programme MIS or social registry enrollment is active or exposes its minimized status.
-        attestation_id: program-enrollment-attestation
         evidence_type: household_support_evidence
         issuing_authority:
           id: social_protection_authority
@@ -661,7 +659,6 @@ datasets:
         iri: https://demo.example.gov/evidence-offerings/welfare-classification
         title: Welfare Classification Attestation
         description: Attestation that exposes the minimized household eligibility band without returning household rows.
-        attestation_id: welfare-classification-attestation
         evidence_type: household_support_evidence
         issuing_authority:
           id: social_protection_authority
@@ -690,7 +687,6 @@ datasets:
         iri: https://demo.example.gov/evidence-offerings/household-composition
         title: Household Composition Attestation
         description: Attestation that returns the minimized household member count needed by a social protection MIS without exposing member rows.
-        attestation_id: household-composition-attestation
         evidence_type: household_composition_evidence
         issuing_authority:
           id: social_protection_authority
@@ -719,7 +715,6 @@ datasets:
         iri: https://demo.example.gov/evidence-offerings/caregiver-link
         title: Parent Or Guardian Link Attestation
         description: Attestation that confirms a requester is an active caregiver in the target child's household.
-        attestation_id: caregiver-link-attestation
         evidence_type: caregiver_link_evidence
         issuing_authority:
           id: social_protection_authority
@@ -749,7 +744,6 @@ datasets:
         iri: https://demo.example.gov/evidence-offerings/disability-determination
         title: Disability Determination Attestation
         description: Attestation that returns the minimized disability support category from a disability authority.
-        attestation_id: disability-determination-attestation
         evidence_type: disability_determination_evidence
         issuing_authority:
           id: social_protection_authority
@@ -778,7 +772,6 @@ datasets:
         iri: https://demo.example.gov/evidence-offerings/functioning-assessment
         title: Functioning Assessment Attestation
         description: Attestation that returns whether a Washington Group-style functioning assessment meets the programme identifier threshold.
-        attestation_id: functioning-assessment-attestation
         evidence_type: functioning_assessment_evidence
         issuing_authority:
           id: social_protection_authority
@@ -926,7 +919,6 @@ datasets:
         iri: https://demo.example.gov/evidence-offerings/health-service-availability
         title: Service Availability Attestation
         description: Evidence Server endpoint that computes facility license and service availability.
-        attestation_id: service-availability-attestation
         evidence_type: health_service_availability_evidence
         issuing_authority:
           id: health_services_authority
@@ -1432,7 +1424,6 @@ datasets:
         iri: https://demo.example.gov/evidence-offerings/combined-support
         title: Combined Support Eligibility Attestation
         description: Shared Evidence Server claim that composes civil, social protection, and health registry facts.
-        attestation_id: combined-support-eligibility-attestation
         evidence_type: combined_support_evidence
         issuing_authority:
           id: interoperability_metadata_publisher
