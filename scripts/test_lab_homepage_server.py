@@ -1184,11 +1184,19 @@ class HomepageHtmlTest(unittest.TestCase):
         option_ids = {option["credential_configuration_id"] for option in options}
         self.assertIn("person_is_alive_sd_jwt", option_ids)
         self.assertIn("crvs_birth_certificate_sd_jwt", option_ids)
+        self.assertIn("crvs_birth_certificate_fields_sd_jwt", option_ids)
         birth_option = next(
             option for option in options if option["credential_configuration_id"] == "crvs_birth_certificate_sd_jwt"
         )
         self.assertEqual(birth_option["demo_identity"]["identifier"], "NID-1001")
         self.assertIn("CRVS birth certificate", birth_option["credential_name"])
+        fields_option = next(
+            option
+            for option in options
+            if option["credential_configuration_id"] == "crvs_birth_certificate_fields_sd_jwt"
+        )
+        self.assertEqual(fields_option["demo_identity"]["identifier"], "NID-1001")
+        self.assertIn("birth certificate fields", fields_option["credential_name"])
 
     def test_homepage_links_to_dedicated_scenario_runner(self) -> None:
         self.assertIn('href="/scenarios"', self.html)

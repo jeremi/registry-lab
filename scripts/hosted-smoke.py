@@ -29,9 +29,11 @@ DEFAULT_DHIS2_NOTARY = "https://dhis2-notary.lab.registrystack.org"
 DEFAULT_DHIS2_SERVICE_ID = "dhis2-health-notary"
 PERSON_ALIVE_CONFIGURATION = "person_is_alive_sd_jwt"
 CRVS_BIRTH_CERTIFICATE_CONFIGURATION = "crvs_birth_certificate_sd_jwt"
+CRVS_BIRTH_CERTIFICATE_FIELDS_CONFIGURATION = "crvs_birth_certificate_fields_sd_jwt"
 WALLET_CONFIGURATIONS = (
     PERSON_ALIVE_CONFIGURATION,
     CRVS_BIRTH_CERTIFICATE_CONFIGURATION,
+    CRVS_BIRTH_CERTIFICATE_FIELDS_CONFIGURATION,
 )
 DHIS2_CREDENTIAL_PROFILE = "dhis2_programme_participation_sd_jwt"
 DHIS2_FORMAT = "application/dc+sd-jwt"
