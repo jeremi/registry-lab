@@ -2077,6 +2077,7 @@ def validate_cross_artifact_contracts(
         for credential_configuration in (
             "person_is_alive_sd_jwt",
             "crvs_birth_certificate_sd_jwt",
+            "crvs_birth_certificate_fields_sd_jwt",
         ):
             if credential_configuration not in text:
                 issues.append(

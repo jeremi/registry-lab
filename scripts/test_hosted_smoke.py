@@ -119,6 +119,7 @@ def base_routes() -> dict[tuple[str, str], Any]:
                 "credential_configurations_supported": {
                     "person_is_alive_sd_jwt": {"format": "dc+sd-jwt"},
                     "crvs_birth_certificate_sd_jwt": {"format": "dc+sd-jwt"},
+                    "crvs_birth_certificate_fields_sd_jwt": {"format": "dc+sd-jwt"},
                 },
             },
         ),
@@ -352,6 +353,7 @@ def lab_route(server: StubServer, method: str, path: str, body: Any) -> tuple[in
                 "credential_options": [
                     {"credential_configuration_id": "person_is_alive_sd_jwt"},
                     {"credential_configuration_id": "crvs_birth_certificate_sd_jwt"},
+                    {"credential_configuration_id": "crvs_birth_certificate_fields_sd_jwt"},
                 ],
             },
             "credentials": [

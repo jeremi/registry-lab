@@ -39,6 +39,58 @@ class HostedDeployValidationTest(unittest.TestCase):
         issues = self._validate(self._valid_registry_lab(), self._valid_esignet())
         self.assertEqual([], issues)
 
+    def test_citizen_crvs_birth_certificate_fields_projection_contract(self) -> None:
+        config = self.validator.load_yaml_mapping_strict(
+            SCRIPT_DIR.parent / "config" / "coolify" / "notary" / "citizen-civil-notary.yaml"
+        )
+        expected_projection = [
+            ("birth.child_given_name", "child_given_name"),
+            ("birth.child_surname", "child_surname"),
+            ("birth.child_birth_date", "birth_date"),
+            ("birth.place_of_birth_name", "birth_place_name"),
+            ("birth.certificate_identifier", "certificate_identifier"),
+            ("birth.issuing_authority_name", "issuing_authority_name"),
+            ("birth.issuing_date", "issuing_date"),
+        ]
+        expected_claim_ids = [claim_id for claim_id, _ in expected_projection]
+        evidence = config["evidence"]
+        profile = evidence["credential_profiles"]["citizen_birth_certificate_fields_sd_jwt"]
+        credential = config["oid4vci"]["credential_configurations"][
+            "crvs_birth_certificate_fields_sd_jwt"
+        ]
+
+        self.assertNotIn("claim_id", credential)
+        self.assertEqual("citizen_birth_certificate_fields_sd_jwt", credential["credential_profile"])
+        self.assertEqual(profile["vct"], credential["vct"])
+        self.assertEqual(expected_claim_ids, profile["allowed_claims"])
+        self.assertEqual(
+            expected_projection,
+            [(claim["id"], claim["output_path"][0]) for claim in credential["claims"]],
+        )
+        self.assertEqual(["always"], sorted({claim["sd"] for claim in credential["claims"]}))
+        self.assertTrue(
+            set(expected_claim_ids).issubset(set(config["self_attestation"]["allowed_claims"]))
+        )
+        self.assertIn(
+            "citizen_birth_certificate_fields_sd_jwt",
+            config["self_attestation"]["credential_profiles"],
+        )
+
+        claims_by_id = {claim["id"]: claim for claim in evidence["claims"]}
+        for claim_id in expected_claim_ids:
+            with self.subTest(claim=claim_id):
+                claim = claims_by_id[claim_id]
+                self.assertEqual(
+                    ["citizen_birth_certificate_fields_sd_jwt"],
+                    claim["credential_profiles"],
+                )
+                self.assertEqual("value", claim["disclosure"]["default"])
+                self.assertIn("value", claim["disclosure"]["allowed"])
+        self.assertFalse(
+            any("parent" in claim_id for claim_id in expected_claim_ids),
+            "field-level wallet credential must not project parent fields",
+        )
+
     def test_rejects_host_ports(self) -> None:
         compose = self._valid_registry_lab()
         compose["services"]["citizen-civil-notary"]["ports"] = ["4321:8080"]
@@ -1276,6 +1328,8 @@ oid4vci:
     person_is_alive_sd_jwt:
       format: dc+sd-jwt
     crvs_birth_certificate_sd_jwt:
+      format: dc+sd-jwt
+    crvs_birth_certificate_fields_sd_jwt:
       format: dc+sd-jwt
 """,
                 encoding="utf-8",
