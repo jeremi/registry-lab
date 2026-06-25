@@ -1,11 +1,11 @@
 # registry-lab
 
-> **Moved:** Active development has moved to the public monorepo:
-> [`registrystack/registry-stack`](https://github.com/registrystack/registry-stack).
-> This repository is kept for pre-monorepo history and release tags. Use the
-> monorepo for new issues, pull requests, and releases.
->
-> Monorepo path: `lab/`.
+**Moved:** Active development has moved to the public monorepo:
+[`registrystack/registry-stack`](https://github.com/registrystack/registry-stack).
+This repository is kept for pre-monorepo history and release tags. Use the
+monorepo for new issues, pull requests, and releases.
+
+Monorepo path: `lab/`.
 
 > **Experimental:** This codebase is under active development. Its APIs are evolving quickly and may be unstable.
 
